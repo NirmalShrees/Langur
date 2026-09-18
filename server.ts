@@ -67,6 +67,18 @@ async function startServer() {
     res.json({ user });
   });
 
+  // In-memory voice participants per room
+  interface VoiceUser {
+    socketId: string;
+    userId: string;
+    username: string;
+    avatar: string;
+    isMuted: boolean;
+    isDeafened: boolean;
+    isSpeaking: boolean;
+  }
+  const voiceRooms = new Map<string, Map<string, VoiceUser>>();
+
   // Socket.io Real-Time Handlers
   io.on('connection', (socket) => {
     let currentRoomId: string | null = null;
@@ -306,12 +318,28 @@ async function startServer() {
     // --- Real-Time Voice Chat Signaling & Audio Relay ---
     socket.on('voice:join', (payload: { roomId: string; user: { id: string; username: string; avatar: string } }, callback) => {
       if (!payload?.roomId || !payload?.user?.id) return;
-      const voiceRoomKey = `voice:${payload.roomId}`;
+      const roomId = payload.roomId;
+      const voiceRoomKey = `voice:${roomId}`;
       socket.join(voiceRoomKey);
 
-      // Get existing sockets in this voice room
-      const existingVoiceSockets = Array.from(io.sockets.adapter.rooms.get(voiceRoomKey) || [])
-        .filter((sid) => sid !== socket.id);
+      if (!voiceRooms.has(roomId)) {
+        voiceRooms.set(roomId, new Map());
+      }
+      const roomMap = voiceRooms.get(roomId)!;
+
+      const newVoiceUser: VoiceUser = {
+        socketId: socket.id,
+        userId: payload.user.id,
+        username: payload.user.username || 'Player',
+        avatar: payload.user.avatar || '🎲',
+        isMuted: false,
+        isDeafened: false,
+        isSpeaking: false,
+      };
+      roomMap.set(socket.id, newVoiceUser);
+
+      // Get existing peers in this room
+      const existingPeers = Array.from(roomMap.values()).filter((p) => p.socketId !== socket.id);
 
       // Notify others that a new peer joined voice
       socket.to(voiceRoomKey).emit('voice:user_joined', {
@@ -319,20 +347,34 @@ async function startServer() {
         userId: payload.user.id,
         username: payload.user.username,
         avatar: payload.user.avatar,
+        isMuted: false,
+        isDeafened: false,
+        isSpeaking: false,
       });
 
       if (typeof callback === 'function') {
         callback({
           success: true,
-          peerSocketIds: existingVoiceSockets,
+          peers: existingPeers,
+          peerSocketIds: existingPeers.map((p) => p.socketId),
         });
       }
     });
 
     socket.on('voice:leave', (payload: { roomId: string; userId: string }) => {
       if (!payload?.roomId) return;
-      const voiceRoomKey = `voice:${payload.roomId}`;
+      const roomId = payload.roomId;
+      const voiceRoomKey = `voice:${roomId}`;
       socket.leave(voiceRoomKey);
+
+      const roomMap = voiceRooms.get(roomId);
+      if (roomMap) {
+        roomMap.delete(socket.id);
+        if (roomMap.size === 0) {
+          voiceRooms.delete(roomId);
+        }
+      }
+
       socket.to(voiceRoomKey).emit('voice:user_left', {
         socketId: socket.id,
         userId: payload.userId || currentUserId,
@@ -351,6 +393,11 @@ async function startServer() {
 
     socket.on('voice:speaking', (payload: { roomId: string; userId: string; isSpeaking: boolean; volume?: number }) => {
       if (!payload?.roomId) return;
+      const roomMap = voiceRooms.get(payload.roomId);
+      if (roomMap && roomMap.has(socket.id)) {
+        const p = roomMap.get(socket.id)!;
+        p.isSpeaking = Boolean(payload.isSpeaking);
+      }
       socket.to(`voice:${payload.roomId}`).emit('voice:user_speaking', {
         userId: payload.userId,
         socketId: socket.id,
@@ -361,6 +408,13 @@ async function startServer() {
 
     socket.on('voice:mute_state', (payload: { roomId: string; userId: string; isMuted: boolean; isDeafened?: boolean }) => {
       if (!payload?.roomId) return;
+      const roomMap = voiceRooms.get(payload.roomId);
+      if (roomMap && roomMap.has(socket.id)) {
+        const p = roomMap.get(socket.id)!;
+        p.isMuted = payload.isMuted;
+        p.isDeafened = payload.isDeafened ?? false;
+        if (payload.isMuted) p.isSpeaking = false;
+      }
       socket.to(`voice:${payload.roomId}`).emit('voice:user_mute_state', {
         userId: payload.userId,
         socketId: socket.id,
@@ -387,11 +441,20 @@ async function startServer() {
     });
 
     socket.on('disconnect', () => {
-      if (currentRoomId && currentUserId) {
+      if (currentRoomId) {
+        const roomMap = voiceRooms.get(currentRoomId);
+        if (roomMap) {
+          roomMap.delete(socket.id);
+          if (roomMap.size === 0) {
+            voiceRooms.delete(currentRoomId);
+          }
+        }
         socket.to(`voice:${currentRoomId}`).emit('voice:user_left', {
           socketId: socket.id,
           userId: currentUserId,
         });
+      }
+      if (currentRoomId && currentUserId) {
         gameEngine.handlePlayerDisconnect(currentRoomId, currentUserId);
       }
     });

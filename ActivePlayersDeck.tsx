@@ -100,12 +100,53 @@ export const ActivePlayersDeck: React.FC<ActivePlayersDeckProps> = React.memo(({
     setShowRosterModal(true);
   };
 
+  // Compute speaking and voice status with robust fallback matching
+  const isPeerSpeaking = (playerId: string, playerUsername: string, isUser?: boolean) => {
+    if (isUser) {
+      return Boolean(voiceState.isConnected && !voiceState.isMuted && voiceState.isSpeaking);
+    }
+    const directPeer = voiceState.peers[playerId];
+    if (directPeer) {
+      return Boolean(directPeer.isSpeaking && !directPeer.isMuted);
+    }
+    const matchedPeer = Object.values(voiceState.peers).find(
+      (p) =>
+        p.userId === playerId ||
+        p.username.toLowerCase() === playerUsername.toLowerCase()
+    );
+    return Boolean(matchedPeer?.isSpeaking && !matchedPeer?.isMuted);
+  };
+
+  const isPeerVoiceConnected = (playerId: string, playerUsername: string, isUser?: boolean) => {
+    if (isUser) return voiceState.isConnected;
+    if (voiceState.peers[playerId]) return true;
+    return Boolean(
+      Object.values(voiceState.peers).find(
+        (p) =>
+          p.userId === playerId ||
+          p.username.toLowerCase() === playerUsername.toLowerCase()
+      )
+    );
+  };
+
+  const isPeerMuted = (playerId: string, playerUsername: string, isUser?: boolean) => {
+    if (isUser) return Boolean(voiceState.isConnected && voiceState.isMuted);
+    const directPeer = voiceState.peers[playerId];
+    if (directPeer) return Boolean(directPeer.isMuted);
+    const matchedPeer = Object.values(voiceState.peers).find(
+      (p) =>
+        p.userId === playerId ||
+        p.username.toLowerCase() === playerUsername.toLowerCase()
+    );
+    return Boolean(matchedPeer?.isMuted);
+  };
+
   return (
     <>
       {/* Top Status Header with Table Info & Live Ping Latency Indicator directly above Avatars */}
       <div className="w-full flex items-center justify-between px-1 mb-1 text-[9.5px] font-mono select-none">
         {/* Left: Table Status */}
-        <div className="flex items-center gap-1.5 text-slate-400">
+        <div className="flex items-center gap-1.5 text-slate-400 min-w-0">
           <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
           <span className="font-semibold text-amber-200/90 tracking-wide uppercase text-[9px]">Pavilion Deck</span>
           <span className="text-slate-600">•</span>
@@ -269,11 +310,9 @@ export const ActivePlayersDeck: React.FC<ActivePlayersDeckProps> = React.memo(({
               const isHost = Boolean(player.isHost);
               const isDisconnected = Boolean(player.isDisconnected);
               const hasVotedNext = phase === 'payout' && ((nextRoundVotes || []).includes(player.id) || player.isReady);
-              const isVoiceConnected = isUser ? voiceState.isConnected : Boolean(voiceState.peers[player.id]);
-              const isMuted = isUser ? (voiceState.isConnected && voiceState.isMuted) : Boolean(voiceState.peers[player.id]?.isMuted);
-              const isSpeaking = isUser
-                ? Boolean(voiceState.isConnected && !voiceState.isMuted && voiceState.isSpeaking)
-                : Boolean(voiceState.peers[player.id]?.isSpeaking && !voiceState.peers[player.id]?.isMuted);
+              const isVoiceConnected = isPeerVoiceConnected(player.id, player.username, isUser);
+              const isMuted = isPeerMuted(player.id, player.username, isUser);
+              const isSpeaking = isPeerSpeaking(player.id, player.username, isUser);
 
               return (
                 <div
@@ -281,10 +320,15 @@ export const ActivePlayersDeck: React.FC<ActivePlayersDeckProps> = React.memo(({
                   className={`relative group/avatar ${isHost ? 'z-30' : isUser ? 'z-20' : 'z-10'}`}
                   title={`${player.username}${isHost ? ' (Table Leader 👑)' : ''}${isSpeaking ? ' (Speaking Live 🎙️)' : ''}${isDisconnected ? ' (Reconnecting...)' : ''}: ${phase === 'payout' ? (hasVotedNext ? 'Ready for Next Round' : 'Viewing Results') : (player.isReady ? 'Ready' : 'Betting')}${isOwner && player.sessionStats?.winRate !== undefined ? ` • Win Rate: ${player.sessionStats.winRate}%` : ''}`}
                 >
+                  {/* Speaking Radar Halo Pulse */}
+                  {isSpeaking && (
+                    <span className="absolute -inset-1 rounded-full bg-emerald-400/40 animate-ping pointer-events-none z-0" />
+                  )}
+
                   <div
                     className={`w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-full flex items-center justify-center text-sm shadow-sm border transition-all duration-150 group-hover/avatar:scale-110 overflow-hidden relative z-10 ${
                       isSpeaking
-                        ? 'bg-emerald-500/25 border-emerald-400 ring-2 ring-emerald-400 animate-speaking-ring scale-105'
+                        ? 'bg-emerald-500/30 border-emerald-300 ring-2.5 ring-emerald-400 shadow-[0_0_14px_rgba(52,211,153,0.9)] animate-speaking-ring scale-110'
                         : isDisconnected
                         ? 'opacity-60 grayscale border-slate-600 bg-slate-900'
                         : isHost
@@ -300,8 +344,8 @@ export const ActivePlayersDeck: React.FC<ActivePlayersDeckProps> = React.memo(({
                   {/* Real-time Voice Speaking Wave / Mute Badge */}
                   {isSpeaking ? (
                     <span
-                      title="Speaking live in Voice Chat 🎙️"
-                      className="absolute -top-1.5 -right-1 px-1 py-0.5 rounded-full bg-emerald-500 border border-slate-950 flex items-center gap-[1.5px] shadow-lg z-30 pointer-events-none"
+                      title={`${player.username} is speaking live 🎙️`}
+                      className="absolute -top-1.5 -right-1.5 px-1 py-0.5 rounded-full bg-emerald-400 text-slate-950 border border-slate-950 flex items-center gap-[1.5px] shadow-lg z-40 pointer-events-none"
                     >
                       <span className="w-[1.5px] bg-slate-950 rounded-full animate-wave-1" />
                       <span className="w-[1.5px] bg-slate-950 rounded-full animate-wave-2" />
@@ -414,9 +458,7 @@ export const ActivePlayersDeck: React.FC<ActivePlayersDeckProps> = React.memo(({
               {uniquePlayers.map((p) => {
                 const isMe = p.isUser;
                 const isDisconnected = Boolean(p.isDisconnected);
-                const isSpeaking = isMe
-                  ? Boolean(voiceState.isConnected && !voiceState.isMuted && voiceState.isSpeaking)
-                  : Boolean(voiceState.peers[p.id]?.isSpeaking && !voiceState.peers[p.id]?.isMuted);
+                const isSpeaking = isPeerSpeaking(p.id, p.username, Boolean(p.isUser));
 
                 return (
                   <div

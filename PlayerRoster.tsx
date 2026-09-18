@@ -1,7 +1,8 @@
-import React from 'react';
-import { Crown, Coins, LogOut, Award } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Crown, Coins, LogOut, Award, Mic, Radio } from 'lucide-react';
 import { PlayerInRoom } from '../types.js';
 import { UserAvatar } from './UserAvatar.js';
+import { voiceService, VoiceState } from '../services/voiceService.js';
 
 interface PlayerRosterProps {
   players: Record<string, PlayerInRoom>;
@@ -18,7 +19,31 @@ export const PlayerRoster: React.FC<PlayerRosterProps> = ({
   onKickPlayer,
   onOpenTableStats,
 }) => {
+  const [voiceState, setVoiceState] = useState<VoiceState>(voiceService.getState());
+
+  useEffect(() => {
+    return voiceService.subscribe((state) => {
+      setVoiceState(state);
+    });
+  }, []);
+
   const playerList: PlayerInRoom[] = Object.values(players || {});
+
+  const isPeerSpeaking = (playerId: string, playerUsername: string, isMe?: boolean) => {
+    if (isMe) {
+      return Boolean(voiceState.isConnected && !voiceState.isMuted && voiceState.isSpeaking);
+    }
+    const directPeer = voiceState.peers[playerId];
+    if (directPeer) {
+      return Boolean(directPeer.isSpeaking && !directPeer.isMuted);
+    }
+    const matchedPeer = Object.values(voiceState.peers).find(
+      (p) =>
+        p.userId === playerId ||
+        p.username.toLowerCase() === playerUsername.toLowerCase()
+    );
+    return Boolean(matchedPeer?.isSpeaking && !matchedPeer?.isMuted);
+  };
 
   return (
     <div
@@ -49,11 +74,14 @@ export const PlayerRoster: React.FC<PlayerRosterProps> = ({
         {playerList.map((p) => {
           const isMe = p.id === currentUserId;
           const isTableOwner = Boolean(p.isHost);
+          const isSpeaking = isPeerSpeaking(p.id, p.username, isMe);
           return (
             <div
               key={p.id}
               className={`flex items-center justify-between p-2.5 rounded-xl border transition-all ${
-                isTableOwner
+                isSpeaking
+                  ? 'bg-emerald-950/40 border-emerald-500/70 shadow-md shadow-emerald-950/50'
+                  : isTableOwner
                   ? 'bg-amber-500/10 border-amber-400/50 shadow-sm'
                   : isMe
                   ? 'bg-amber-500/10 border-amber-500/40 ring-1 ring-amber-500/30'
@@ -63,23 +91,37 @@ export const PlayerRoster: React.FC<PlayerRosterProps> = ({
               {/* Player Avatar & Info */}
               <div className="flex items-center gap-2.5 min-w-0">
                 <div className="relative">
+                  {isSpeaking && (
+                    <span className="absolute -inset-1 rounded-full bg-emerald-400/40 animate-ping pointer-events-none z-0" />
+                  )}
                   <div
-                    className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg shadow-inner overflow-hidden border ${
-                      isTableOwner
+                    className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg shadow-inner overflow-hidden border transition-all duration-150 relative z-10 ${
+                      isSpeaking
+                        ? 'border-emerald-400 ring-2 ring-emerald-400 bg-emerald-500/20 animate-speaking-ring scale-105'
+                        : isTableOwner
                         ? 'bg-amber-500/20 border-amber-400 ring-2 ring-amber-400/80 shadow-amber-950/70'
                         : 'bg-slate-800 border-slate-700'
                     }`}
                   >
                     <UserAvatar avatar={p.avatar} name={p.username} size="sm" className="w-full h-full rounded-none" />
                   </div>
-                  {isTableOwner && (
+                  {isSpeaking ? (
+                    <span
+                      title="Speaking live in Voice Chat 🎙️"
+                      className="absolute -top-1.5 -right-1.5 px-1 py-0.5 rounded-full bg-emerald-400 text-slate-950 border border-slate-950 flex items-center gap-[1.5px] shadow-lg z-30 pointer-events-none"
+                    >
+                      <span className="w-[1.5px] bg-slate-950 rounded-full animate-wave-1" />
+                      <span className="w-[1.5px] bg-slate-950 rounded-full animate-wave-2" />
+                      <span className="w-[1.5px] bg-slate-950 rounded-full animate-wave-3" />
+                    </span>
+                  ) : isTableOwner ? (
                     <span
                       title="Table Owner 👑"
-                      className="absolute -top-1.5 -left-1.5 w-4 h-4 rounded-full bg-gradient-to-tr from-amber-400 to-amber-600 flex items-center justify-center shadow-md border border-slate-950 z-10"
+                      className="absolute -top-1.5 -left-1.5 w-4 h-4 rounded-full bg-gradient-to-tr from-amber-400 to-amber-600 flex items-center justify-center shadow-md border border-slate-950 z-20"
                     >
                       <Crown className="w-2.5 h-2.5 text-slate-950 fill-slate-950" />
                     </span>
-                  )}
+                  ) : null}
                 </div>
 
                 <div className="min-w-0">
@@ -87,7 +129,13 @@ export const PlayerRoster: React.FC<PlayerRosterProps> = ({
                     <span className="font-bold text-xs sm:text-sm text-slate-200 truncate">
                       {p.username}
                     </span>
-                    {isTableOwner && (
+                    {isSpeaking && (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-emerald-500/20 border border-emerald-400/50 text-[8.5px] font-bold text-emerald-300 font-mono shrink-0">
+                        <Radio className="w-2.5 h-2.5 animate-pulse" />
+                        TALKING
+                      </span>
+                    )}
+                    {isTableOwner && !isSpeaking && (
                       <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-amber-500/25 border border-amber-400/60 text-[8.5px] font-black text-amber-300 tracking-wider font-mono shadow-sm">
                         <Crown className="w-2.5 h-2.5 text-amber-400 fill-amber-400" />
                         TABLE OWNER

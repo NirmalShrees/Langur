@@ -73,6 +73,7 @@ class VoiceService {
   // SocketId to UserId mapping
   private socketToUser: Map<string, string> = new Map();
   private userToSocket: Map<string, string> = new Map();
+  private fallbackSpeakingTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
 
   // Web Audio fallback streamer
   private mediaRecorder: MediaRecorder | null = null;
@@ -127,15 +128,15 @@ class VoiceService {
     if (!this.socket) return;
 
     this.socket.on('voice:user_joined', async (data: { socketId: string; userId: string; username: string; avatar: string }) => {
-      if (!this.state.isConnected || !this.localStream) return;
+      if (!data?.userId || data.userId === this.currentUser?.id) return;
       this.socketToUser.set(data.socketId, data.userId);
       this.userToSocket.set(data.userId, data.socketId);
 
       this.state.peers[data.userId] = {
         socketId: data.socketId,
         userId: data.userId,
-        username: data.username,
-        avatar: data.avatar,
+        username: data.username || 'Player',
+        avatar: data.avatar || '🎲',
         isSpeaking: false,
         isMuted: false,
         isDeafened: false,
@@ -144,8 +145,10 @@ class VoiceService {
       };
       this.notify();
 
-      // Initiate WebRTC offer as the existing peer
-      await this.createPeerConnection(data.socketId, data.userId, true);
+      if (this.state.isConnected && this.localStream) {
+        // Initiate WebRTC offer as the existing peer
+        await this.createPeerConnection(data.socketId, data.userId, true);
+      }
     });
 
     this.socket.on('voice:user_left', (data: { socketId: string; userId: string }) => {
@@ -156,21 +159,36 @@ class VoiceService {
       await this.handleSignal(data.fromSocketId, data.fromUserId, data.signalData);
     });
 
-    this.socket.on('voice:user_speaking', (data: { userId: string; isSpeaking: boolean; volume: number }) => {
-      if (this.state.peers[data.userId]) {
-        // Only update if peer is not muted
-        if (this.state.peers[data.userId].isMuted) {
-          this.state.peers[data.userId].isSpeaking = false;
-          this.state.peers[data.userId].volumeLevel = 0;
+    this.socket.on('voice:user_speaking', (data: { userId: string; isSpeaking: boolean; volume?: number }) => {
+      if (!data?.userId || data.userId === this.currentUser?.id) return;
+
+      const peer = this.state.peers[data.userId];
+      if (!peer) {
+        this.state.peers[data.userId] = {
+          socketId: this.userToSocket.get(data.userId) || '',
+          userId: data.userId,
+          username: 'Player',
+          avatar: '🎲',
+          isSpeaking: Boolean(data.isSpeaking),
+          isMuted: false,
+          isDeafened: false,
+          volume: 1.0,
+          volumeLevel: data.isSpeaking ? Math.max(25, data.volume ?? 50) : 0,
+        };
+      } else {
+        if (peer.isMuted) {
+          peer.isSpeaking = false;
+          peer.volumeLevel = 0;
         } else {
-          this.state.peers[data.userId].isSpeaking = Boolean(data.isSpeaking);
-          this.state.peers[data.userId].volumeLevel = data.isSpeaking ? Math.max(15, data.volume ?? 50) : 0;
+          peer.isSpeaking = Boolean(data.isSpeaking);
+          peer.volumeLevel = data.isSpeaking ? Math.max(25, data.volume ?? 50) : 0;
         }
-        this.notify();
       }
+      this.notify();
     });
 
     this.socket.on('voice:user_mute_state', (data: { userId: string; isMuted: boolean; isDeafened: boolean }) => {
+      if (!data?.userId) return;
       if (this.state.peers[data.userId]) {
         this.state.peers[data.userId].isMuted = data.isMuted;
         this.state.peers[data.userId].isDeafened = data.isDeafened;
@@ -182,11 +200,49 @@ class VoiceService {
       }
     });
 
-    // Fallback audio playback (if peer-to-peer WebRTC is restricted)
-    this.socket.on('voice:incoming_audio', async (data: { fromUserId: string; audioData: string }) => {
+    // Fallback audio playback (if peer-to-peer WebRTC is restricted or delayed)
+    this.socket.on('voice:incoming_audio', async (data: { fromUserId: string; fromUsername?: string; audioData: string }) => {
       if (this.state.isDeafened || !this.state.isConnected) return;
-      if (data.fromUserId === this.currentUser?.id) return;
-      this.playFallbackAudioChunk(data.fromUserId, data.audioData);
+      if (!data?.fromUserId || data.fromUserId === this.currentUser?.id) return;
+
+      // Immediately activate visual speaking indicator for remote user
+      const peerId = data.fromUserId;
+      if (!this.state.peers[peerId]) {
+        this.state.peers[peerId] = {
+          socketId: this.userToSocket.get(peerId) || '',
+          userId: peerId,
+          username: data.fromUsername || 'Player',
+          avatar: '🎲',
+          isSpeaking: true,
+          isMuted: false,
+          isDeafened: false,
+          volume: 1.0,
+          volumeLevel: 65,
+        };
+      } else {
+        this.state.peers[peerId].isSpeaking = true;
+        this.state.peers[peerId].volumeLevel = 65;
+      }
+      this.notify();
+
+      // Clear existing silence timer if any
+      const existingTimer = this.fallbackSpeakingTimers.get(peerId);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+      }
+
+      // Reset speaking indicator ~320ms after chunk finishes
+      const timer = setTimeout(() => {
+        if (this.state.peers[peerId]) {
+          this.state.peers[peerId].isSpeaking = false;
+          this.state.peers[peerId].volumeLevel = 0;
+          this.notify();
+        }
+        this.fallbackSpeakingTimers.delete(peerId);
+      }, 320);
+      this.fallbackSpeakingTimers.set(peerId, timer);
+
+      this.playFallbackAudioChunk(peerId, data.audioData);
     });
   }
 
@@ -240,10 +296,32 @@ class VoiceService {
         this.socket.emit(
           'voice:join',
           { roomId, user },
-          async (res: { success: boolean; peerSocketIds?: string[] }) => {
-            if (res?.success && res.peerSocketIds) {
-              for (const peerSid of res.peerSocketIds) {
-                await this.createPeerConnection(peerSid, '', false);
+          async (res: { success: boolean; peers?: any[]; peerSocketIds?: string[] }) => {
+            if (res?.success) {
+              if (res.peers && Array.isArray(res.peers)) {
+                for (const p of res.peers) {
+                  if (p.userId && p.userId !== user.id) {
+                    this.socketToUser.set(p.socketId, p.userId);
+                    this.userToSocket.set(p.userId, p.socketId);
+                    this.state.peers[p.userId] = {
+                      socketId: p.socketId,
+                      userId: p.userId,
+                      username: p.username || 'Player',
+                      avatar: p.avatar || '🎲',
+                      isSpeaking: Boolean(p.isSpeaking),
+                      isMuted: Boolean(p.isMuted),
+                      isDeafened: Boolean(p.isDeafened),
+                      volume: 1.0,
+                      volumeLevel: p.isSpeaking ? 50 : 0,
+                    };
+                    await this.createPeerConnection(p.socketId, p.userId, false);
+                  }
+                }
+                this.notify();
+              } else if (res.peerSocketIds) {
+                for (const peerSid of res.peerSocketIds) {
+                  await this.createPeerConnection(peerSid, '', false);
+                }
               }
             }
           }
@@ -316,6 +394,9 @@ class VoiceService {
       } catch {}
     });
     this.audioElements.clear();
+
+    this.fallbackSpeakingTimers.forEach((timer) => clearTimeout(timer));
+    this.fallbackSpeakingTimers.clear();
 
     this.socketToUser.clear();
     this.userToSocket.clear();
