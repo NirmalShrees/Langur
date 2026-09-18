@@ -122,6 +122,8 @@ export interface UserProfile {
   hasPassword?: boolean;
   googleName?: string;
   googleAvatar?: string;
+  coinHistory?: any[];
+  coin_history?: any[];
 }
 
 export interface PlayerSessionStats {

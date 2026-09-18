@@ -8,6 +8,7 @@ import {
   Check,
   Edit2,
   ShieldCheck,
+  LogIn,
   LogOut,
   KeyRound,
   Eye,
@@ -298,35 +299,82 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
           )}
 
           {/* 1. Live Player Card Preview */}
-          <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-amber-500/30 flex items-center gap-3.5 shadow-lg relative overflow-hidden">
-            <div className="relative shrink-0">
-              <div className="w-16 h-16 rounded-2xl overflow-hidden border-2 border-amber-400/80 shadow-md bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center">
-                <UserAvatar avatar={user.avatar} name={user.username} size="xl" className="w-full h-full rounded-none" />
-              </div>
-              <div className="absolute -bottom-1 -right-1 p-1 bg-amber-500 rounded-full border border-slate-950 shadow">
-                <Crown className="w-3 h-3 text-slate-950 fill-slate-950" />
-              </div>
-            </div>
+          <div className="p-3 sm:p-3.5 rounded-2xl bg-gradient-to-br from-slate-900/95 via-slate-950 to-amber-950/20 border border-amber-500/35 shadow-lg relative overflow-hidden">
+            {/* Subtle luxury ambient highlight */}
+            <div className="absolute top-0 right-0 w-36 h-36 bg-amber-500/5 rounded-full blur-2xl pointer-events-none" />
 
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <h3 className="font-serif font-black text-base text-amber-100 truncate">
+            <div className="flex items-center gap-3 sm:gap-3.5">
+              {/* Avatar Frame */}
+              <div className="relative shrink-0">
+                <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl overflow-hidden border-2 border-amber-400/80 shadow-md bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center">
+                  <UserAvatar avatar={user.avatar} name={user.username} size="lg" className="w-full h-full rounded-none" />
+                </div>
+                <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-amber-500 rounded-full border border-slate-950 shadow flex items-center justify-center">
+                  <Crown className="w-2.5 h-2.5 text-slate-950 fill-slate-950" />
+                </div>
+              </div>
+
+              {/* Player Details & Action */}
+              <div className="flex-1 min-w-0">
+                {/* Header Row: Name */}
+                <h3 className="font-serif font-black text-sm sm:text-base text-amber-100 truncate leading-tight">
                   {user.username}
                 </h3>
-                <span className="text-[9.5px] font-mono font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/30 truncate max-w-[170px]">
-                  {user.equipped?.title || 'Festival Patron'}
-                </span>
-              </div>
 
-              <div className="flex items-center gap-3 mt-1.5 text-xs">
-                <div className="flex items-center gap-1 font-mono text-amber-300 font-bold">
-                  <Coins className="w-3.5 h-3.5 text-amber-400" />
-                  <span>{user.coins.toLocaleString()} 🪙</span>
+                {/* Sub-row: Title & Auth provider tags */}
+                <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                  <span className="inline-flex items-center text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-400/30 truncate max-w-[130px] sm:max-w-[160px]">
+                    {user.equipped?.title || 'Festival Patron'}
+                  </span>
+                  <span className="inline-flex items-center gap-0.5 text-[8.5px] font-mono text-emerald-400 bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-500/30">
+                    <ShieldCheck className="w-2.5 h-2.5 shrink-0" />
+                    <span>{user.isGuest ? 'Guest' : user.authProvider === 'google' ? 'Google' : 'Email'}</span>
+                  </span>
                 </div>
 
-                <div className="text-[10px] text-slate-400 flex items-center gap-1">
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>{user.isGuest ? 'Guest' : user.authProvider === 'google' ? 'Google Account' : 'Email Account'}</span>
+                {/* Bottom Row: Coin Balance on Left & Sign In / Sign Out Button on Bottom Right */}
+                <div className="flex items-center justify-between gap-2 mt-1.5 pt-1.5 border-t border-slate-800/80">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="text-[9.5px] uppercase font-mono text-slate-400 shrink-0">Balance:</span>
+                    <div className="flex items-center gap-1 font-mono text-xs font-bold text-amber-200 truncate">
+                      <Coins className="w-3 h-3 text-amber-400 fill-amber-400/40 shrink-0" />
+                      <span className="truncate">{user.coins.toLocaleString()}</span>
+                      <span className="text-[10px] text-amber-400 font-serif shrink-0">🪙</span>
+                    </div>
+                  </div>
+
+                  {/* Bottom Right Box Inside Avatar/Name Card: Sign In (for Guest) or Sign Out (for Logged In) */}
+                  <div className="shrink-0">
+                    {user.isGuest ? (
+                      <button
+                        type="button"
+                        id="profile-card-signin-btn"
+                        onClick={() => {
+                          onClose();
+                          onOpenAuth?.();
+                        }}
+                        className="px-2.5 py-0.5 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-[10.5px] shadow-sm flex items-center gap-1 active:scale-95 transition-all cursor-pointer border border-amber-300/60 whitespace-nowrap"
+                        title="Sign in with Google or Email"
+                      >
+                        <LogIn className="w-3 h-3" />
+                        <span>Sign In</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        id="profile-card-signout-btn"
+                        onClick={() => {
+                          onSignOut?.();
+                          onClose();
+                        }}
+                        className="px-2 py-0.5 rounded-lg bg-slate-900/90 hover:bg-rose-950/80 text-slate-300 hover:text-rose-200 border border-slate-700/80 hover:border-rose-500/50 text-[10px] font-semibold transition-all flex items-center gap-1 cursor-pointer active:scale-95 shadow-sm whitespace-nowrap"
+                        title="Sign Out of Account"
+                      >
+                        <LogOut className="w-3 h-3 text-rose-400" />
+                        <span>Sign Out</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -660,213 +708,177 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             )}
           </div>
 
-          {/* 6. Email Login & Password Setting (With RED 'Needs Setup' Urgency Badge) */}
-          <div className="p-3.5 rounded-2xl bg-slate-950/90 border border-amber-500/35 space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
-                  <KeyRound className="w-3.5 h-3.5" />
-                </div>
-                <div>
-                  <h4 className="text-xs font-bold text-amber-100 flex items-center gap-1.5">
-                    <span>Email Login &amp; Password</span>
-                  </h4>
-                  <p className="text-[10px] text-slate-400">
-                    Access your account with email &amp; password anywhere
-                  </p>
-                </div>
-              </div>
-
-              {/* Urgency Badge: Green if ready, Vibrant Urgent RED if needs setup */}
-              <span
-                id="profile-password-status-badge"
-                className={`text-[9.5px] font-mono font-black px-2.5 py-0.5 rounded-full border flex items-center gap-1 uppercase tracking-wider ${
-                  isPasswordReady
-                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/40'
-                    : 'bg-rose-500/25 text-rose-200 border-rose-500/60 shadow-md shadow-rose-950/50 animate-pulse ring-1 ring-rose-500/40'
-                }`}
-              >
-                {isPasswordReady ? (
-                  <>
-                    <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                    <span>Ready</span>
-                  </>
-                ) : (
-                  <>
-                    <AlertCircle className="w-3 h-3 text-rose-400" />
-                    <span>Needs Setup</span>
-                  </>
-                )}
-              </span>
-            </div>
-
-            {/* Email Account Info */}
-            <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 text-[11px] flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <span className="text-[9px] text-slate-500 uppercase font-mono block">Linked Email</span>
-                <span className="text-slate-200 font-bold truncate block">
-                  {user.email || customEmail || 'No email attached (Guest)'}
-                </span>
-              </div>
-
-              <button
-                type="button"
-                id="profile-toggle-password-form-btn"
-                onClick={() => {
-                  setIsPasswordFormOpen(!isPasswordFormOpen);
-                  setPasswordError(null);
-                  setPasswordSuccess(null);
-                }}
-                className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold transition-all cursor-pointer shrink-0 ${
-                  !isPasswordReady
-                    ? 'bg-rose-500/20 hover:bg-rose-500/30 border-rose-500/50 text-rose-200'
-                    : 'bg-amber-500/15 hover:bg-amber-500/25 border-amber-400/30 text-amber-300'
-                }`}
-              >
-                {isPasswordFormOpen ? 'Hide' : isPasswordReady ? 'Change Password' : 'Set Password'}
-              </button>
-            </div>
-
-            {/* Expandable Password Setup Form */}
-            {isPasswordFormOpen && (
-              <form onSubmit={handleSavePassword} className="space-y-2.5 pt-1 animate-in fade-in duration-200">
-                {/* Custom Email Input if user has no email */}
-                {!user.email && (
+          {/* 6. Email Login & Password Setting (Only visible for Registered/Cloud accounts, hidden for guests) */}
+          {!user.isGuest && (
+            <div className="p-3.5 rounded-2xl bg-slate-950/90 border border-amber-500/35 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
+                    <KeyRound className="w-3.5 h-3.5" />
+                  </div>
                   <div>
-                    <label className="text-[10px] font-mono text-slate-400 block mb-1">
-                      Email Address:
-                    </label>
-                    <input
-                      type="email"
-                      required
-                      value={customEmail}
-                      onChange={(e) => setCustomEmail(e.target.value)}
-                      placeholder="e.g. magarjack0@gmail.com"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-amber-100 placeholder-slate-500 focus:outline-none focus:border-amber-400"
-                    />
-                  </div>
-                )}
-
-                <div>
-                  <label className="text-[10px] font-mono text-slate-400 block mb-1">
-                    New Password (min 6 chars):
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showNewPassword ? 'text' : 'password'}
-                      required
-                      minLength={6}
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-3 pr-9 py-2 text-xs font-bold text-amber-100 placeholder-slate-500 focus:outline-none focus:border-amber-400"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowNewPassword(!showNewPassword)}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
-                    >
-                      {showNewPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                    </button>
+                    <h4 className="text-xs font-bold text-amber-100 flex items-center gap-1.5">
+                      <span>Email Login &amp; Password</span>
+                    </h4>
+                    <p className="text-[10px] text-slate-400">
+                      Access your account with email &amp; password anywhere
+                    </p>
                   </div>
                 </div>
 
-                <div>
-                  <label className="text-[10px] font-mono text-slate-400 block mb-1">
-                    Confirm Password:
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showConfirmPassword ? 'text' : 'password'}
-                      required
-                      minLength={6}
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-3 pr-9 py-2 text-xs font-bold text-amber-100 placeholder-slate-500 focus:outline-none focus:border-amber-400"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
-                    >
-                      {showConfirmPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
-                </div>
-
-                {passwordError && (
-                  <div className="p-2 rounded-xl bg-rose-950/60 border border-rose-500/40 text-rose-300 text-[11px] flex items-center gap-1.5">
-                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                    <span>{passwordError}</span>
-                  </div>
-                )}
-
-                {passwordSuccess && (
-                  <div className="p-2 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 text-[11px] flex items-center gap-1.5">
-                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                    <span>{passwordSuccess}</span>
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={passwordLoading}
-                  className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 text-slate-950 font-bold text-xs shadow flex items-center justify-center gap-1.5 active:scale-98 transition-all disabled:opacity-50 cursor-pointer"
+                {/* Urgency Badge: Green if ready, Vibrant Urgent RED if needs setup */}
+                <span
+                  id="profile-password-status-badge"
+                  className={`text-[9.5px] font-mono font-black px-2.5 py-0.5 rounded-full border flex items-center gap-1 uppercase tracking-wider ${
+                    isPasswordReady
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/40'
+                      : 'bg-rose-500/25 text-rose-200 border-rose-500/60 shadow-md shadow-rose-950/50 animate-pulse ring-1 ring-rose-500/40'
+                  }`}
                 >
-                  {passwordLoading ? (
+                  {isPasswordReady ? (
                     <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Saving Password...</span>
+                      <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                      <span>Ready</span>
                     </>
                   ) : (
                     <>
-                      <Lock className="w-3.5 h-3.5" />
-                      <span>{isPasswordReady ? 'Update Password' : 'Save & Link Password'}</span>
+                      <AlertCircle className="w-3 h-3 text-rose-400" />
+                      <span>Needs Setup</span>
                     </>
                   )}
+                </span>
+              </div>
+
+              {/* Email Account Info */}
+              <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 text-[11px] flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <span className="text-[9px] text-slate-500 uppercase font-mono block">Linked Email</span>
+                  <span className="text-slate-200 font-bold truncate block">
+                    {user.email || customEmail || 'No email attached'}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  id="profile-toggle-password-form-btn"
+                  onClick={() => {
+                    setIsPasswordFormOpen(!isPasswordFormOpen);
+                    setPasswordError(null);
+                    setPasswordSuccess(null);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold transition-all cursor-pointer shrink-0 ${
+                    !isPasswordReady
+                      ? 'bg-rose-500/20 hover:bg-rose-500/30 border-rose-500/50 text-rose-200'
+                      : 'bg-amber-500/15 hover:bg-amber-500/25 border-amber-400/30 text-amber-300'
+                  }`}
+                >
+                  {isPasswordFormOpen ? 'Hide' : isPasswordReady ? 'Change Password' : 'Set Password'}
                 </button>
-              </form>
-            )}
-          </div>
+              </div>
 
-          {/* 7. Account Session & Sign Out */}
-          <div className="p-3 rounded-2xl bg-slate-950/60 border border-slate-800 flex items-center justify-between gap-2">
-            <div>
-              <div className="text-xs font-bold text-slate-200">
-                {user.isGuest ? 'Guest Player' : user.email || 'Cloud Account'}
-              </div>
-              <div className="text-[10px] text-slate-400">
-                {user.isGuest ? 'Progress saved locally' : 'Synchronized with Supabase Cloud'}
-              </div>
+              {/* Expandable Password Setup Form */}
+              {isPasswordFormOpen && (
+                <form onSubmit={handleSavePassword} className="space-y-2.5 pt-1 animate-in fade-in duration-200">
+                  {/* Custom Email Input if user has no email */}
+                  {!user.email && (
+                    <div>
+                      <label className="text-[10px] font-mono text-slate-400 block mb-1">
+                        Email Address:
+                      </label>
+                      <input
+                        type="email"
+                        required
+                        value={customEmail}
+                        onChange={(e) => setCustomEmail(e.target.value)}
+                        placeholder="e.g. magarjack0@gmail.com"
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-amber-100 placeholder-slate-500 focus:outline-none focus:border-amber-400"
+                      />
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="text-[10px] font-mono text-slate-400 block mb-1">
+                      New Password (min 6 chars):
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showNewPassword ? 'text' : 'password'}
+                        required
+                        minLength={6}
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-3 pr-9 py-2 text-xs font-bold text-amber-100 placeholder-slate-500 focus:outline-none focus:border-amber-400"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowNewPassword(!showNewPassword)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                      >
+                        {showNewPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-mono text-slate-400 block mb-1">
+                      Confirm Password:
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showConfirmPassword ? 'text' : 'password'}
+                        required
+                        minLength={6}
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-3 pr-9 py-2 text-xs font-bold text-amber-100 placeholder-slate-500 focus:outline-none focus:border-amber-400"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                      >
+                        {showConfirmPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {passwordError && (
+                    <div className="p-2 rounded-xl bg-rose-950/60 border border-rose-500/40 text-rose-300 text-[11px] flex items-center gap-1.5">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                      <span>{passwordError}</span>
+                    </div>
+                  )}
+
+                  {passwordSuccess && (
+                    <div className="p-2 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 text-[11px] flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                      <span>{passwordSuccess}</span>
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={passwordLoading}
+                    className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 text-slate-950 font-bold text-xs shadow flex items-center justify-center gap-1.5 active:scale-98 transition-all disabled:opacity-50 cursor-pointer"
+                  >
+                    {passwordLoading ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Saving Password...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Lock className="w-3.5 h-3.5" />
+                        <span>{isPasswordReady ? 'Update Password' : 'Save & Link Password'}</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              )}
             </div>
-
-            {user.isGuest ? (
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onOpenAuth?.();
-                }}
-                className="py-1.5 px-3 rounded-xl bg-amber-500 text-slate-950 font-bold text-xs shadow flex items-center gap-1 active:scale-95 transition-all cursor-pointer"
-              >
-                <Sparkles className="w-3 h-3 fill-slate-950" />
-                <span>Link Google</span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  onSignOut?.();
-                  onClose();
-                }}
-                className="py-1 px-2.5 rounded-lg bg-slate-900 hover:bg-rose-950/60 text-slate-400 hover:text-rose-300 border border-slate-800 hover:border-rose-500/40 text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer"
-              >
-                <LogOut className="w-3 h-3" />
-                <span>Sign Out</span>
-              </button>
-            )}
-          </div>
+          )}
         </div>
 
         {/* Modal Footer: Done Button */}

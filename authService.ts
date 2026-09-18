@@ -1,10 +1,44 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase.js';
 import { UserProfile } from '../types.js';
+import { CoinReceipt, getCoinReceipts, setCoinReceipts } from '../utils/coinHistory.js';
 
 const LOCAL_STORAGE_KEY = 'langur_burja_user_profile';
 const GUEST_ID_KEY = 'langur_burja_uid';
 
 export { isSupabaseConfigured };
+
+/**
+ * Smoothly fetch only the coin history for a user from Supabase
+ */
+export async function fetchRemoteCoinHistory(userId: string): Promise<CoinReceipt[] | null> {
+  if (!supabase || !isSupabaseConfigured() || !userId) return null;
+  if (userId.startsWith('guest_')) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('coin_history, stats')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (error || !data) return null;
+
+    let remoteList: any[] | null = null;
+    if (Array.isArray(data.coin_history)) {
+      remoteList = data.coin_history;
+    } else if (data.stats && typeof data.stats === 'object' && Array.isArray(data.stats.coinHistory)) {
+      remoteList = data.stats.coinHistory;
+    }
+
+    if (remoteList && Array.isArray(remoteList)) {
+      setCoinReceipts(userId, remoteList);
+      return getCoinReceipts(userId);
+    }
+  } catch (e) {
+    console.warn('[Supabase] Failed to fetch coin history:', e);
+  }
+  return null;
+}
 
 /**
  * Creates default fallback profile for guest players
@@ -87,6 +121,14 @@ export async function fetchRemoteProfile(userId: string): Promise<UserProfile | 
       (cleanEmail && localStorage.getItem(`langur_burja_pwd_${cleanEmail}`))
     );
 
+    const remoteCoinHistory = Array.isArray(data.coin_history)
+      ? data.coin_history
+      : (Array.isArray(data.coinHistory) ? data.coinHistory : (Array.isArray(rawStats.coinHistory) ? rawStats.coinHistory : null));
+
+    if (remoteCoinHistory && remoteCoinHistory.length > 0) {
+      setCoinReceipts(data.id, remoteCoinHistory);
+    }
+
     return {
       id: data.id,
       email: data.email || undefined,
@@ -109,6 +151,8 @@ export async function fetchRemoteProfile(userId: string): Promise<UserProfile | 
       isGuest: false,
       profileConfigured,
       hasPassword,
+      coinHistory: remoteCoinHistory || getCoinReceipts(data.id),
+      coin_history: remoteCoinHistory || getCoinReceipts(data.id),
     };
   } catch (err) {
     console.warn('[Supabase] Failed to fetch remote profile:', err);
@@ -130,7 +174,7 @@ export function getLastSyncStatus() {
 
 /**
  * Syncs user profile changes to Supabase profiles table using the clean 6-column merged schema:
- * Columns: [id, username, avatar, coins, stats, updated_at]
+ * Columns: [id, username, avatar, coins, coin_history, stats, updated_at]
  */
 export async function syncProfileToSupabase(profile: UserProfile): Promise<{ success: boolean; error?: string }> {
   saveLocalProfile(profile);
@@ -147,12 +191,16 @@ export async function syncProfileToSupabase(profile: UserProfile): Promise<{ suc
   }
 
   try {
-    // 1. Clean merged 6-column payload
+    // 1. Clean merged payload with coin_history
     const cleanEmail = profile.email ? profile.email.toLowerCase().trim() : undefined;
     const hasPassword = Boolean(
       profile.hasPassword ??
       (cleanEmail && localStorage.getItem(`langur_burja_pwd_${cleanEmail}`))
     );
+
+    const historyList = (profile.coinHistory && profile.coinHistory.length > 0)
+      ? profile.coinHistory
+      : ((profile.coin_history && profile.coin_history.length > 0) ? profile.coin_history : getCoinReceipts(profile.id));
 
     const mergedStats = {
       gamesPlayed: profile.gamesPlayed || 0,
@@ -161,6 +209,7 @@ export async function syncProfileToSupabase(profile: UserProfile): Promise<{ suc
       biggestWin: profile.biggestWin || 0,
       profileConfigured: profile.profileConfigured ?? true,
       hasPassword,
+      coinHistory: historyList,
       equipped: profile.equipped || {
         diceSkin: 'dice_classic',
         tableMat: 'mat_velvet_green',
@@ -174,6 +223,7 @@ export async function syncProfileToSupabase(profile: UserProfile): Promise<{ suc
       username: profile.username || 'Festival Player',
       avatar: profile.avatar || '🎲',
       coins: typeof profile.coins === 'number' ? profile.coins : 5000,
+      coin_history: historyList,
       stats: mergedStats,
       updated_at: new Date().toISOString(),
     };
@@ -183,6 +233,13 @@ export async function syncProfileToSupabase(profile: UserProfile): Promise<{ suc
     }
 
     let { error } = await supabase.from('profiles').upsert(mergedPayload, { onConflict: 'id' });
+
+    // Fallback 0: If 'coin_history' column does not exist yet in table, remove from top-level and retry (saved in stats JSONB)
+    if (error && (error.message?.toLowerCase().includes('coin_history') || error.code === 'PGRST204')) {
+      delete mergedPayload.coin_history;
+      const res = await supabase.from('profiles').upsert(mergedPayload, { onConflict: 'id' });
+      error = res.error;
+    }
 
     // Fallback 1: If 'email' column does not exist in table, retry without 'email'
     if (error && (error.message?.toLowerCase().includes('email') || error.code === 'PGRST204')) {
@@ -214,12 +271,17 @@ export async function syncProfileToSupabase(profile: UserProfile): Promise<{ suc
         equipped_table_mat: profile.equipped.tableMat,
         equipped_title: profile.equipped.title,
         inventory: profile.inventory,
+        coin_history: historyList,
         updated_at: new Date().toISOString(),
       };
       if (profile.email) {
         legacyPayload.email = profile.email;
       }
       let res = await supabase.from('profiles').upsert(legacyPayload, { onConflict: 'id' });
+      if (res.error && res.error.message?.toLowerCase().includes('coin_history')) {
+        delete legacyPayload.coin_history;
+        res = await supabase.from('profiles').upsert(legacyPayload, { onConflict: 'id' });
+      }
       if (res.error && res.error.message?.toLowerCase().includes('email')) {
         delete legacyPayload.email;
         res = await supabase.from('profiles').upsert(legacyPayload, { onConflict: 'id' });

@@ -31,6 +31,7 @@ import { UserProfile, LANGUR_BURJA_SYMBOLS, SYMBOL_KEYS, SymbolType } from '../t
 import { sound } from '../utils/audio.js';
 import { getSymbolImageDataUrl } from '../utils/diceTextures.js';
 import { UserAvatar } from './UserAvatar.js';
+import { CoinTreasuryModal } from './CoinTreasuryModal.js';
 
 interface MainMenuProps {
   user: UserProfile;
@@ -109,6 +110,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
 }) => {
   const [isMuted, setIsMuted] = useState(sound.getIsMuted());
   const [showSymbolColorInfo, setShowSymbolColorInfo] = useState(false);
+  const [isTreasuryOpen, setIsTreasuryOpen] = useState(false);
 
   const toggleSound = () => {
     const muted = sound.toggleMute();
@@ -247,23 +249,22 @@ export const MainMenu: React.FC<MainMenuProps> = ({
             </div>
           </div>
 
-          {/* Treasury Coins & Bonus Faucet */}
-          <div className="flex items-center gap-1.5 shrink-0">
-            <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-950 border border-amber-500/30">
-              <Coins className="w-3.5 h-3.5 text-amber-400 fill-amber-400/30" />
-              <span className="text-xs sm:text-sm font-mono font-black text-amber-200">
+          {/* Treasury Coins Button (Opens Treasury & History) */}
+          <div className="flex items-center shrink-0">
+            <button
+              id="main-menu-coins-btn"
+              type="button"
+              onClick={() => {
+                sound.playChipSound();
+                setIsTreasuryOpen(true);
+              }}
+              title="Open Treasury"
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-slate-950/90 hover:bg-slate-900 border border-amber-500/40 hover:border-amber-400 text-amber-300 shadow-sm active:scale-95 transition-all group cursor-pointer"
+            >
+              <Coins className="w-3 h-3 text-amber-400 fill-amber-400/40 group-hover:scale-105 transition-transform shrink-0" />
+              <span className="text-[11px] font-mono font-bold text-amber-200 tracking-tight">
                 {user.coins.toLocaleString()}
               </span>
-            </div>
-
-            <button
-              onClick={onClaimFaucet}
-              disabled={faucetLoading}
-              title="Claim 1,000 Free Bonus Coins"
-              className="flex items-center gap-1 px-2 py-1 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 text-slate-950 font-black text-[10px] shadow active:scale-95 transition-all disabled:opacity-50"
-            >
-              <Sparkles className="w-3 h-3 fill-slate-950" />
-              <span>+1K</span>
             </button>
           </div>
         </div>
@@ -529,6 +530,15 @@ export const MainMenu: React.FC<MainMenuProps> = ({
           {tableTheme}
         </span>
       </div>
+
+      {/* 7. Coin Treasury & Received History Modal */}
+      <CoinTreasuryModal
+        isOpen={isTreasuryOpen}
+        onClose={() => setIsTreasuryOpen(false)}
+        user={user}
+        onClaimFaucet={onClaimFaucet}
+        faucetLoading={faucetLoading}
+      />
     </div>
   );
 };

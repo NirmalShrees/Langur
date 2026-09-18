@@ -47,6 +47,7 @@ import { TableStatsModal } from './components/TableStatsModal.js';
 import { voiceService } from './services/voiceService.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { sound } from './utils/audio.js';
+import { addCoinReceipt, getCoinReceipts } from './utils/coinHistory.js';
 import {
   getStoredLocalProfile,
   saveLocalProfile,
@@ -313,6 +314,7 @@ export default function App() {
       saveLocalProfile(linkedUser);
       await syncProfileToSupabase(linkedUser);
 
+      localStorage.setItem('langur_burja_authenticated', 'true');
       localStorage.setItem('langur_burja_welcomed', 'true');
       setIsAuthModalOpen(false);
 
@@ -334,6 +336,14 @@ export default function App() {
     },
     [socket, isConnected, showToast]
   );
+
+  // Authentication Status Check (Logged in with Google/Email or Logged in as Guest)
+  const isAuthenticated = useMemo(() => {
+    return Boolean(
+      (!user.isGuest && (user.email || user.authProvider === 'email' || user.authProvider === 'google')) ||
+      (typeof window !== 'undefined' && localStorage.getItem('langur_burja_authenticated') === 'true')
+    );
+  }, [user.isGuest, user.email, user.authProvider]);
 
   // 1. Initialize User Session & Supabase Cloud Auth
   useEffect(() => {
@@ -462,8 +472,11 @@ export default function App() {
           }
         });
 
-        // Show welcome choice modal on first visit
-        if (!hasSeenWelcome && isMounted) {
+        // Show welcome choice modal if not yet authenticated
+        const isAuthed = Boolean(
+          localStorage.getItem('langur_burja_authenticated') === 'true'
+        );
+        if (!isAuthed && isMounted) {
           setIsAuthModalOpen(true);
         }
 
@@ -474,8 +487,11 @@ export default function App() {
           sub?.subscription?.unsubscribe();
         };
       } else {
-        // Supabase not yet configured, first-time welcome popup for guest play
-        if (!hasSeenWelcome && isMounted) {
+        // Supabase not yet configured, first-time welcome popup for guest or login play
+        const isAuthed = Boolean(
+          localStorage.getItem('langur_burja_authenticated') === 'true'
+        );
+        if (!isAuthed && isMounted) {
           setIsAuthModalOpen(true);
         }
         cleanupFn = () => {
@@ -1181,6 +1197,19 @@ export default function App() {
 
   const handleAuthSuccess = useCallback(
     async (authedUser: UserProfile) => {
+      if (authedUser.isGuest) {
+        setUser(authedUser);
+        saveLocalProfile(authedUser);
+        localStorage.setItem('langur_burja_authenticated', 'true');
+        localStorage.setItem('langur_burja_welcomed', 'true');
+        setIsAuthModalOpen(false);
+        showToast('Playing as Guest! Welcome to the game.', 'success');
+        if (socket && isConnected) {
+          socket.emit('user:init', { id: authedUser.id });
+        }
+        return;
+      }
+
       // Check remote cloud profile to determine if this is a returning or first-time user
       const remote = await fetchRemoteProfile(authedUser.id);
       const isAlreadyRegistered =
@@ -1204,6 +1233,7 @@ export default function App() {
 
       setUser(finalUser);
       saveLocalProfile(finalUser);
+      localStorage.setItem('langur_burja_authenticated', 'true');
       localStorage.setItem('langur_burja_welcomed', 'true');
       setIsAuthModalOpen(false);
 
@@ -1224,11 +1254,23 @@ export default function App() {
   );
 
   const handleSignOut = useCallback(async () => {
-    await authSignOut();
+    try {
+      await authSignOut();
+    } catch (e) {
+      console.warn('Sign out error:', e);
+    }
+    localStorage.removeItem('langur_burja_authenticated');
+    localStorage.removeItem('langur_burja_google_configured');
+    localStorage.removeItem('langur_burja_welcomed');
     const guestUser = createDefaultProfile();
     setUser(guestUser);
     saveLocalProfile(guestUser);
-    showToast('Signed out. You are now playing as Guest.', 'info');
+    setIsInGame(false);
+    setIsProfileOpen(false);
+    setIsSettingsOpen(false);
+    setIsTableModalOpen(false);
+    setIsAuthModalOpen(true);
+    showToast('Signed out successfully. Sign in or play as guest.', 'info');
 
     if (socket && isConnected) {
       socket.emit('user:init', { id: guestUser.id });
@@ -1309,19 +1351,28 @@ export default function App() {
       // Update Player Balance & Stats after every round
       const playerProfit = playerTotalWon - playerTotalBet;
       if (playerTotalBet > 0) {
-        setUser((u) => {
-          const updatedUser: UserProfile = {
-            ...u,
-            coins: u.coins + playerProfit,
-            gamesPlayed: u.gamesPlayed + 1,
-            gamesWon: playerTotalWon > 0 ? u.gamesWon + 1 : u.gamesWon,
-            totalWinnings: playerTotalWon > 0 ? u.totalWinnings + playerProfit : u.totalWinnings,
-            biggestWin: Math.max(u.biggestWin, playerProfit > 0 ? playerProfit : 0),
-          };
-          saveLocalProfile(updatedUser);
-          syncProfileToSupabase(updatedUser).catch(() => {});
-          return updatedUser;
-        });
+        const nextCoins = currentUser.coins + playerProfit;
+        if (playerProfit > 0) {
+          addCoinReceipt(currentUser.id, {
+            amount: playerProfit,
+            description: `Round #${currentRound} Winnings`,
+          });
+        }
+
+        const currentHistory = getCoinReceipts(currentUser.id);
+        const updatedUser: UserProfile = {
+          ...currentUser,
+          coins: nextCoins,
+          gamesPlayed: currentUser.gamesPlayed + 1,
+          gamesWon: playerTotalWon > 0 ? currentUser.gamesWon + 1 : currentUser.gamesWon,
+          totalWinnings: playerTotalWon > 0 ? currentUser.totalWinnings + playerProfit : currentUser.totalWinnings,
+          biggestWin: Math.max(currentUser.biggestWin, playerProfit > 0 ? playerProfit : 0),
+          coinHistory: currentHistory,
+          coin_history: currentHistory,
+        };
+        setUser(updatedUser);
+        saveLocalProfile(updatedUser);
+        syncProfileToSupabase(updatedUser).catch(() => {});
       }
 
       const summary: RoundResultSummary = {
@@ -2581,7 +2632,13 @@ export default function App() {
 
     setTimeout(() => {
       setUser((u) => {
-        const next = { ...u, coins: u.coins + 1000 };
+        const nextCoins = u.coins + 1000;
+        addCoinReceipt(u.id, {
+          amount: 1000,
+          description: 'Free Bonus Faucet',
+        });
+        const currentHistory = getCoinReceipts(u.id);
+        const next = { ...u, coins: nextCoins, coinHistory: currentHistory, coin_history: currentHistory };
         saveLocalProfile(next);
         syncProfileToSupabase(next);
         return next;
@@ -2733,6 +2790,11 @@ export default function App() {
           user={user}
           onUpdateUser={handleUpdateUserProfile}
           onStartGame={() => {
+            if (!isAuthenticated) {
+              setIsAuthModalOpen(true);
+              showToast('Please sign in or continue as guest to start playing.', 'info');
+              return;
+            }
             setIsInGame(true);
             startNextRound();
             setSelectedChip(100);
@@ -2740,6 +2802,11 @@ export default function App() {
             showToast('New round! Place your bets.', 'info');
           }}
           onOpenTableModal={(tab) => {
+            if (!isAuthenticated) {
+              setIsAuthModalOpen(true);
+              showToast('Please sign in or continue as guest to create or join tables.', 'info');
+              return;
+            }
             setTableModalTab(tab);
             setIsTableModalOpen(true);
           }}
@@ -3060,11 +3127,14 @@ export default function App() {
       <AuthModal
         isOpen={isAuthModalOpen}
         onClose={() => {
-          localStorage.setItem('langur_burja_welcomed', 'true');
-          setIsAuthModalOpen(false);
+          if (isAuthenticated) {
+            setIsAuthModalOpen(false);
+          } else {
+            showToast('Please sign in or choose guest to start playing.', 'info');
+          }
         }}
         onAuthSuccess={handleAuthSuccess}
-        canDismiss={true}
+        canDismiss={isAuthenticated}
       />
 
       {/* Leaderboard Modal */}
