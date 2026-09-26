@@ -239,7 +239,8 @@ export default function App() {
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
   const [isShopOpen, setIsShopOpen] = useState(false);
   const [faucetLoading, setFaucetLoading] = useState(false);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' | 'warning' } | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' | 'warning'; isFading?: boolean } | null>(null);
+  const toastTimerRef = useRef<{ hideTimer?: ReturnType<typeof setTimeout>; removeTimer?: ReturnType<typeof setTimeout> }>({});
 
   // Table & Arena Options
   const [tableTheme, setTableTheme] = useState<'emerald' | 'crimson' | 'midnight'>('emerald');
@@ -277,8 +278,27 @@ export default function App() {
   ]);
 
   const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
+    if (toastTimerRef.current.hideTimer) clearTimeout(toastTimerRef.current.hideTimer);
+    if (toastTimerRef.current.removeTimer) clearTimeout(toastTimerRef.current.removeTimer);
+
+    setToast({ message, type, isFading: false });
+
+    toastTimerRef.current.hideTimer = setTimeout(() => {
+      setToast((prev) => (prev ? { ...prev, isFading: true } : null));
+      toastTimerRef.current.removeTimer = setTimeout(() => {
+        setToast(null);
+      }, 250);
+    }, 2500);
+  }, []);
+
+  const dismissToast = useCallback(() => {
+    if (toastTimerRef.current.hideTimer) clearTimeout(toastTimerRef.current.hideTimer);
+    if (toastTimerRef.current.removeTimer) clearTimeout(toastTimerRef.current.removeTimer);
+
+    setToast((prev) => (prev ? { ...prev, isFading: true } : null));
+    toastTimerRef.current.removeTimer = setTimeout(() => {
+      setToast(null);
+    }, 200);
   }, []);
 
   const isRollingInitiatedRef = useRef(false);
@@ -2969,42 +2989,54 @@ export default function App() {
       ? 'border-blue-900/40'
       : 'border-emerald-900/40';
 
+  // Compact, Click-to-dismiss Smooth-fading Toast element
+  const renderToastElement = (extraClasses: string) => {
+    if (!toast) return null;
+    return (
+      <div
+        id="app-toast-pill"
+        onClick={dismissToast}
+        role="status"
+        title="Tap to dismiss"
+        className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full shadow-lg border text-[10px] sm:text-[10.5px] font-medium whitespace-nowrap backdrop-blur-md select-none cursor-pointer pointer-events-auto max-w-[88%] overflow-hidden transition-all duration-200 ease-out active:scale-95 ${
+          toast.isFading
+            ? 'opacity-0 translate-y-1 scale-95'
+            : 'opacity-100 translate-y-0 scale-100'
+        } ${
+          toast.type === 'error'
+            ? 'bg-rose-950/95 border-rose-500/60 text-rose-200 shadow-rose-950/60'
+            : toast.type === 'success'
+            ? 'bg-emerald-950/95 border-emerald-500/60 text-emerald-200 shadow-emerald-950/60'
+            : toast.type === 'warning'
+            ? 'bg-amber-950/95 border-amber-500/60 text-amber-200 shadow-amber-950/60'
+            : 'bg-slate-900/95 border-amber-500/40 text-amber-200 shadow-black/60'
+        } ${extraClasses}`}
+      >
+        {toast.type === 'error' ? (
+          <AlertCircle className="w-3 h-3 text-rose-400 shrink-0" />
+        ) : toast.type === 'warning' ? (
+          <AlertCircle className="w-3 h-3 text-amber-400 shrink-0" />
+        ) : toast.type === 'success' ? (
+          <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+        ) : (
+          <Sparkles className="w-3 h-3 text-amber-400 shrink-0" />
+        )}
+        <span className="truncate whitespace-nowrap">{toast.message}</span>
+      </div>
+    );
+  };
+
   return (
     <div
       id="app-root-container"
       className={`min-h-screen ${globalAppBg} text-slate-100 flex flex-col items-center select-none`}
     >
-      {/* Toast Feedback Notification - Small & Elegant Single-Line Pill */}
-      {toast && (
-        <div
-          id="global-toast"
-          className={`fixed top-12 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1.5 px-3 py-1 rounded-full shadow-lg border text-[11px] font-semibold whitespace-nowrap backdrop-blur-md animate-in fade-in zoom-in-95 duration-150 select-none pointer-events-none max-w-[92vw] overflow-hidden ${
-            toast.type === 'error'
-              ? 'bg-rose-950/95 border-rose-500/60 text-rose-200'
-              : toast.type === 'success'
-              ? 'bg-emerald-950/95 border-emerald-500/60 text-emerald-200'
-              : toast.type === 'warning'
-              ? 'bg-amber-950/95 border-amber-500/60 text-amber-200'
-              : 'bg-slate-900/95 border-amber-500/40 text-amber-200'
-          }`}
-        >
-          {toast.type === 'error' ? (
-            <AlertCircle className="w-3 h-3 text-rose-400 shrink-0" />
-          ) : toast.type === 'warning' ? (
-            <AlertCircle className="w-3 h-3 text-amber-400 shrink-0" />
-          ) : toast.type === 'success' ? (
-            <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
-          ) : (
-            <Sparkles className="w-3 h-3 text-amber-400 shrink-0" />
-          )}
-          <span className="truncate whitespace-nowrap">{toast.message}</span>
-        </div>
-      )}
-
       {/* Dynamic Screen: Main Menu vs Active Game Arena */}
       {!isInGame ? (
-        <MainMenu
-          user={user}
+        <>
+          {renderToastElement('fixed bottom-8 left-1/2 -translate-x-1/2 z-50')}
+          <MainMenu
+            user={user}
           onUpdateUser={handleUpdateUserProfile}
           onStartGame={() => {
             if (!isAuthenticated) {
@@ -3043,6 +3075,7 @@ export default function App() {
           onOpenNotifications={() => setIsNotificationOpen(true)}
           unreadNotificationCount={notifications.filter((n) => !n.read).length}
         />
+        </>
       ) : (
         /* Main Mobile Screen Wrapper: Responsive adaptive viewport */
         <div className={`w-full max-w-md sm:max-w-lg md:max-w-xl h-[100dvh] sm:h-[96vh] sm:max-h-[960px] flex flex-col justify-between shadow-2xl border-x ${gameFrameBorder} bg-slate-950 relative overflow-hidden sm:rounded-3xl transition-colors duration-300`}>
@@ -3096,7 +3129,7 @@ export default function App() {
               />
             </div>
 
-            {/* 3D Three.js Arena Component: Fills remaining open pavilion height */}
+              {/* 3D Three.js Arena Component: Fills remaining open pavilion height */}
             <div
               id="three-arena-pavilion-container"
               className="w-full flex-1 min-h-[160px] overflow-hidden relative"
@@ -3113,11 +3146,11 @@ export default function App() {
                 currentUserId={user.id}
               />
 
-              {/* Waiting for next round status badge floating at top-center of 3D view */}
+              {/* Waiting for next round status badge located at bottom-center where the toast is located */}
               {phase === 'payout' && (
                 <div
                   id="consensus-next-round-overlay"
-                  className="absolute top-2.5 left-1/2 -translate-x-1/2 z-20 pointer-events-none flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-950/90 backdrop-blur-md border border-amber-500/40 shadow-xl text-amber-200 font-mono text-[10px] whitespace-nowrap animate-in fade-in zoom-in-95 duration-200 select-none max-w-[95%]"
+                  className="absolute bottom-2.5 left-1/2 -translate-x-1/2 z-20 pointer-events-none flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-slate-950/90 backdrop-blur-md border border-amber-500/40 shadow-xl text-amber-200 font-mono text-[10px] whitespace-nowrap animate-in fade-in zoom-in-95 duration-200 select-none max-w-[95%]"
                 >
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping shrink-0" />
                   <span className="font-medium text-amber-100/90 truncate">
@@ -3125,10 +3158,14 @@ export default function App() {
                       ? 'Leader: Click Next Round to start'
                       : 'Waiting for Leader to start'}
                   </span>
-                  <span className="font-bold bg-amber-500/25 px-1.5 py-0.2 rounded text-[9px] border border-amber-400/40 text-amber-300 shrink-0">
-                    {nextRoundVotes.length}/{Math.max(1, activeTablePlayers.length)} Ready
-                  </span>
                 </div>
+              )}
+
+              {/* Floating Toast Notification: Positioned above the Next Round Badge when active, otherwise at bottom */}
+              {renderToastElement(
+                phase === 'payout'
+                  ? 'absolute bottom-9 sm:bottom-9.5 left-1/2 -translate-x-1/2 z-30'
+                  : 'absolute bottom-2.5 left-1/2 -translate-x-1/2 z-30'
               )}
             </div>
 

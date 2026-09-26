@@ -313,7 +313,7 @@ export const GameTableModal: React.FC<GameTableModalProps> = ({
           {/* 1. CREATE TABLE VIEW */}
           {/* ========================================================= */}
           {mode === 'create' && (
-            <div className="space-y-4 animate-in fade-in duration-200">
+            <div className="space-y-4">
               {createdRoomInfo ? (
                 /* Created Room Invite, Joined Players & Host Entry Panel - Non-scrollable compact layout */
                 <div className="p-3 sm:p-4 rounded-2xl bg-gradient-to-b from-amber-950/40 via-slate-900 to-slate-950 border border-amber-400/50 space-y-3 text-center relative">
@@ -678,7 +678,7 @@ export const GameTableModal: React.FC<GameTableModalProps> = ({
           {/* 2. JOIN TABLE VIEW */}
           {/* ========================================================= */}
           {mode === 'join' && (
-            <div className="space-y-3.5 animate-in fade-in duration-200">
+            <div className="space-y-3.5">
               {/* Option A: Join with Table Code */}
               <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-2.5 shadow-md">
                 <div className="flex items-center justify-between">

@@ -163,7 +163,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
               sound.playChipSound();
               setFilter('all');
             }}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-full font-bold transition-all cursor-pointer whitespace-nowrap active:scale-95 ${
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-full font-bold cursor-pointer whitespace-nowrap ${
               filter === 'all'
                 ? 'bg-amber-500 text-slate-950 shadow-sm'
                 : 'text-slate-400 hover:text-amber-200 bg-slate-900/60 hover:bg-slate-900'
@@ -186,7 +186,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
               sound.playChipSound();
               setFilter('announcements');
             }}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-full font-bold transition-all cursor-pointer whitespace-nowrap active:scale-95 ${
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-full font-bold cursor-pointer whitespace-nowrap ${
               filter === 'announcements'
                 ? 'bg-amber-500 text-slate-950 shadow-sm'
                 : 'text-slate-400 hover:text-amber-200 bg-slate-900/60 hover:bg-slate-900'
@@ -209,7 +209,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
               sound.playChipSound();
               setFilter('rewards');
             }}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-full font-bold transition-all cursor-pointer whitespace-nowrap active:scale-95 ${
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-full font-bold cursor-pointer whitespace-nowrap ${
               filter === 'rewards'
                 ? 'bg-amber-500 text-slate-950 shadow-sm'
                 : 'text-slate-400 hover:text-amber-200 bg-slate-900/60 hover:bg-slate-900'

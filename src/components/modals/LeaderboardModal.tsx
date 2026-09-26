@@ -137,7 +137,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
               sound.playChipSound();
               setActiveTab('winnings');
             }}
-            className={`py-1.5 px-2 rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+            className={`py-1.5 px-2 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer ${
               activeTab === 'winnings'
                 ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-black shadow-md'
                 : 'text-slate-400 hover:text-amber-200'
@@ -153,7 +153,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
               sound.playChipSound();
               setActiveTab('winRate');
             }}
-            className={`py-1.5 px-2 rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+            className={`py-1.5 px-2 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer ${
               activeTab === 'winRate'
                 ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-black shadow-md'
                 : 'text-slate-400 hover:text-amber-200'
@@ -169,7 +169,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
               sound.playChipSound();
               setActiveTab('biggestWin');
             }}
-            className={`py-1.5 px-2 rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+            className={`py-1.5 px-2 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer ${
               activeTab === 'biggestWin'
                 ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-black shadow-md'
                 : 'text-slate-400 hover:text-amber-200'

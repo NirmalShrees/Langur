@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { CheckCircle2, Clock, Users, X, Sparkles, Crown, LogOut, Activity, WifiOff, Mic, MicOff, Volume2, Radio } from 'lucide-react';
 import { UserAvatar } from '../common/UserAvatar.js';
 import { PlayerSessionStats } from '../../types.js';
@@ -97,48 +97,44 @@ export const ActivePlayersDeck: React.FC<ActivePlayersDeckProps> = React.memo(({
   const overflowCount = Math.max(0, uniquePlayers.length - 5);
 
   const handleOpenStats = () => {
-    setShowRosterModal(true);
+    if (onOpenTableStats) {
+      onOpenTableStats();
+    } else {
+      setShowRosterModal(true);
+    }
   };
 
-  // Compute speaking and voice status with robust fallback matching
+  // Precompute voice peers map for O(1) instantaneous lookup without array scans
+  const voicePeerStatusMap = useMemo(() => {
+    const map: Record<string, { isSpeaking: boolean; isConnected: boolean; isMuted: boolean }> = {};
+    Object.values(voiceState.peers).forEach((peer) => {
+      const status = {
+        isSpeaking: Boolean(peer.isSpeaking && !peer.isMuted),
+        isConnected: true,
+        isMuted: Boolean(peer.isMuted),
+      };
+      if (peer.userId) map[peer.userId] = status;
+      if (peer.username) map[peer.username.toLowerCase()] = status;
+    });
+    return map;
+  }, [voiceState.peers]);
+
+  // Compute speaking and voice status with O(1) instant lookup
   const isPeerSpeaking = (playerId: string, playerUsername: string, isUser?: boolean) => {
     if (isUser) {
       return Boolean(voiceState.isConnected && !voiceState.isMuted && voiceState.isSpeaking);
     }
-    const directPeer = voiceState.peers[playerId];
-    if (directPeer) {
-      return Boolean(directPeer.isSpeaking && !directPeer.isMuted);
-    }
-    const matchedPeer = Object.values(voiceState.peers).find(
-      (p) =>
-        p.userId === playerId ||
-        p.username.toLowerCase() === playerUsername.toLowerCase()
-    );
-    return Boolean(matchedPeer?.isSpeaking && !matchedPeer?.isMuted);
+    return Boolean(voicePeerStatusMap[playerId]?.isSpeaking || voicePeerStatusMap[playerUsername.toLowerCase()]?.isSpeaking);
   };
 
   const isPeerVoiceConnected = (playerId: string, playerUsername: string, isUser?: boolean) => {
     if (isUser) return voiceState.isConnected;
-    if (voiceState.peers[playerId]) return true;
-    return Boolean(
-      Object.values(voiceState.peers).find(
-        (p) =>
-          p.userId === playerId ||
-          p.username.toLowerCase() === playerUsername.toLowerCase()
-      )
-    );
+    return Boolean(voicePeerStatusMap[playerId] || voicePeerStatusMap[playerUsername.toLowerCase()]);
   };
 
   const isPeerMuted = (playerId: string, playerUsername: string, isUser?: boolean) => {
     if (isUser) return Boolean(voiceState.isConnected && voiceState.isMuted);
-    const directPeer = voiceState.peers[playerId];
-    if (directPeer) return Boolean(directPeer.isMuted);
-    const matchedPeer = Object.values(voiceState.peers).find(
-      (p) =>
-        p.userId === playerId ||
-        p.username.toLowerCase() === playerUsername.toLowerCase()
-    );
-    return Boolean(matchedPeer?.isMuted);
+    return Boolean(voicePeerStatusMap[playerId]?.isMuted || voicePeerStatusMap[playerUsername.toLowerCase()]?.isMuted);
   };
 
   return (
@@ -282,11 +278,9 @@ export const ActivePlayersDeck: React.FC<ActivePlayersDeckProps> = React.memo(({
               <span>Rolling...</span>
             </div>
           ) : (
-            <div className="h-[25px] flex items-center gap-1.5 px-2 rounded-lg bg-emerald-500/15 border border-emerald-400/30 text-emerald-300 text-[10px] font-bold shrink-0 font-mono">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span>
-                Next: {uniquePlayers.filter((p) => (nextRoundVotes || []).includes(p.id) || p.isReady).length}/{uniquePlayers.length} Ready
-              </span>
+            <div className="h-[25px] flex items-center gap-1.5 px-2 rounded-lg bg-emerald-500/15 border border-emerald-400/30 text-emerald-300 text-[10px] font-bold shrink-0">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+              <span>Round Results</span>
             </div>
           )}
         </div>

@@ -1189,31 +1189,17 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
 
     animationFrameRef.current = requestAnimationFrame(animate);
 
-    // Responsive Canvas Resizing with instantaneous projection update and frame-synced GPU buffer sizing
-    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+    // Responsive Canvas Resizing with instantaneous projection update and GPU buffer sizing
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width: newW, height: newH } = entry.contentRect;
-        if (newW > 0 && newH > 0) {
-          // Instant camera aspect update avoids any distortion or lag
-          camera.aspect = newW / newH;
-          camera.updateProjectionMatrix();
-
-          // Smoothly sync GPU buffer resizing on next animation frame
-          if (resizeTimer) clearTimeout(resizeTimer);
-          resizeTimer = setTimeout(() => {
-            requestAnimationFrame(() => {
-              if (rendererRef.current && mountRef.current) {
-                const curW = mountRef.current.clientWidth;
-                const curH = mountRef.current.clientHeight;
-                if (curW > 0 && curH > 0) {
-                  rendererRef.current.setSize(curW, curH, false);
-                  camera.aspect = curW / curH;
-                  camera.updateProjectionMatrix();
-                }
-              }
-            });
-          }, 40);
+        if (newW > 0 && newH > 0 && rendererRef.current && cameraRef.current) {
+          cameraRef.current.aspect = newW / newH;
+          cameraRef.current.updateProjectionMatrix();
+          rendererRef.current.setSize(newW, newH, false);
+          if (sceneRef.current) {
+            rendererRef.current.render(sceneRef.current, cameraRef.current);
+          }
         }
       }
     });
@@ -1225,7 +1211,6 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
     renderer.domElement.addEventListener('webglcontextlost', handleContextLost, false);
 
     return () => {
-      if (resizeTimer) clearTimeout(resizeTimer);
       cancelAnimationFrame(animationFrameRef.current);
       resizeObserver.disconnect();
       renderer.domElement.removeEventListener('webglcontextlost', handleContextLost);
@@ -1364,11 +1349,11 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
         </div>
       )}
 
-      {/* Bottom Left: Chat-style Floating Winner Messages (Avatar, Name, Amount - no background box, smooth fade) */}
+      {/* Bottom Left: Chat-style Floating Winner Messages (Elevated above the bottom badge, smooth fade) */}
       {winnersRendered && roundWinners.length > 0 && (
         <div
           id="three-arena-winners-chat"
-          className={`absolute bottom-2 left-2 z-20 pointer-events-none flex flex-col gap-1 max-w-[85%] sm:max-w-[75%] select-none transition-all duration-1000 ease-in-out ${
+          className={`absolute bottom-9 sm:bottom-9.5 left-2 z-20 pointer-events-none flex flex-col gap-1 max-w-[85%] sm:max-w-[75%] select-none transition-all duration-1000 ease-in-out ${
             winnersVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-1'
           }`}
         >

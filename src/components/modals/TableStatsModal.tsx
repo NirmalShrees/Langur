@@ -118,12 +118,14 @@ export const TableStatsModal: React.FC<TableStatsModalProps> = ({
   return (
     <div
       id="table-stats-backdrop"
-      className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overscroll-contain animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overscroll-contain animate-in fade-in duration-100"
+      style={{ willChange: 'opacity' }}
       onClick={onClose}
     >
       <div
         id="table-stats-modal"
-        className="w-full max-w-xl h-[560px] max-h-[90vh] bg-gradient-to-b from-[#0e1424] via-[#090d18] to-[#060810] border border-amber-500/40 rounded-2xl shadow-2xl overflow-hidden flex flex-col text-slate-100 animate-in zoom-in-95 duration-150"
+        className="w-full max-w-xl h-[560px] max-h-[90vh] bg-gradient-to-b from-[#0e1424] via-[#090d18] to-[#060810] border border-amber-500/40 rounded-2xl shadow-2xl overflow-hidden flex flex-col text-slate-100 animate-in zoom-in-95 duration-100"
+        style={{ transform: 'translateZ(0)', willChange: 'transform' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header Ribbon */}
@@ -170,7 +172,7 @@ export const TableStatsModal: React.FC<TableStatsModalProps> = ({
           <button
             id="table-tab-players-btn"
             onClick={() => setActiveTab('players')}
-            className={`w-full flex items-center justify-center gap-1.5 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+            className={`w-full flex items-center justify-center gap-1.5 py-2 text-xs font-bold rounded-xl cursor-pointer ${
               activeTab === 'players'
                 ? 'bg-amber-500/20 text-amber-300 border border-amber-400/50 shadow-sm'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60 border border-transparent'
@@ -186,7 +188,7 @@ export const TableStatsModal: React.FC<TableStatsModalProps> = ({
           <button
             id="table-tab-history-btn"
             onClick={() => setActiveTab('history')}
-            className={`w-full flex items-center justify-center gap-1.5 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+            className={`w-full flex items-center justify-center gap-1.5 py-2 text-xs font-bold rounded-xl cursor-pointer ${
               activeTab === 'history'
                 ? 'bg-amber-500/20 text-amber-300 border border-amber-400/50 shadow-sm'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60 border border-transparent'
@@ -204,7 +206,7 @@ export const TableStatsModal: React.FC<TableStatsModalProps> = ({
           <button
             id="table-tab-overview-btn"
             onClick={() => setActiveTab('overview')}
-            className={`w-full flex items-center justify-center gap-1.5 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+            className={`w-full flex items-center justify-center gap-1.5 py-2 text-xs font-bold rounded-xl cursor-pointer ${
               activeTab === 'overview'
                 ? 'bg-amber-500/20 text-amber-300 border border-amber-400/50 shadow-sm'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60 border border-transparent'

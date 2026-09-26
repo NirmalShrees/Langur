@@ -108,7 +108,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <button
             id="settings-tab-btn"
             onClick={() => setActiveTab('settings')}
-            className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+            className={`flex-1 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 ${
               activeTab === 'settings'
                 ? 'bg-amber-500 text-slate-950 shadow-md font-black'
                 : 'text-slate-400 hover:text-slate-200'
@@ -120,7 +120,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <button
             id="settings-rules-tab-btn"
             onClick={() => setActiveTab('rules')}
-            className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+            className={`flex-1 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 ${
               activeTab === 'rules'
                 ? 'bg-amber-500 text-slate-950 shadow-md font-black'
                 : 'text-slate-400 hover:text-slate-200'
@@ -237,7 +237,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
 
-              {/* Supreme Admin Panel Shortcut (Only for Admins) */}
+              {/* Admin Portal Shortcut (Only for Admins) */}
               {Boolean(
                 user?.isAdmin ||
                 user?.is_admin ||
@@ -257,7 +257,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
                     <div className="text-left">
                       <div className="font-bold text-xs text-amber-200 group-hover:text-amber-100 flex items-center gap-1.5">
-                        <span>Supreme Admin Suite</span>
+                        <span>Admin Portal</span>
                         <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 border border-purple-400/40">MASTER</span>
                       </div>
                       <div className="text-[10px] text-slate-400">

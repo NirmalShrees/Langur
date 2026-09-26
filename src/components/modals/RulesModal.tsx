@@ -128,7 +128,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose }) => {
         <div className="flex-1 overflow-y-auto overflow-x-hidden pr-1.5 space-y-4 text-xs sm:text-sm text-slate-300 custom-scrollbar">
           {/* TAB 1: HOW TO PLAY */}
           {activeTab === 'gameplay' && (
-            <div className="space-y-3.5 animate-in fade-in duration-200">
+            <div className="space-y-3.5">
               {/* Introduction Card */}
               <div className="p-4 rounded-2xl bg-slate-950/70 border border-amber-500/20 relative overflow-hidden">
                 <div className="flex items-start gap-3">

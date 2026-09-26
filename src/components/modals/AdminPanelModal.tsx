@@ -571,7 +571,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
         <div className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-950/90 border-b border-slate-800 shrink-0 overflow-x-auto scrollbar-none">
           <button
             onClick={() => setActiveTab('players')}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all shrink-0 cursor-pointer active:scale-95 ${
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold shrink-0 cursor-pointer ${
               activeTab === 'players'
                 ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold shadow-md shadow-amber-950/50'
                 : 'text-slate-400 hover:text-amber-200 hover:bg-slate-900/60'
@@ -595,7 +595,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
               setActiveTab('tables');
               fetchTables();
             }}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all shrink-0 cursor-pointer active:scale-95 ${
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold shrink-0 cursor-pointer ${
               activeTab === 'tables'
                 ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold shadow-md shadow-amber-950/50'
                 : 'text-slate-400 hover:text-amber-200 hover:bg-slate-900/60'
@@ -616,7 +616,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
 
           <button
             onClick={() => setActiveTab('broadcast')}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all shrink-0 cursor-pointer active:scale-95 ${
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold shrink-0 cursor-pointer ${
               activeTab === 'broadcast'
                 ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold shadow-md shadow-amber-950/50'
                 : 'text-slate-400 hover:text-amber-200 hover:bg-slate-900/60'
