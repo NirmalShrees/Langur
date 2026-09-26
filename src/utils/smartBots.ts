@@ -1,5 +1,5 @@
 import { SymbolType, SYMBOL_KEYS, PlayerSessionStats } from '../types.js';
-import { TablePlayer } from '../components/ActivePlayersDeck.js';
+import { TablePlayer } from '../components/betting/ActivePlayersDeck.js';
 
 export type BotStrategy =
   | 'trend_follower'   // Follows hot symbols from recent rounds

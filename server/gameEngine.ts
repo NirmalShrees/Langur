@@ -794,6 +794,22 @@ export class GameEngine {
     return { success: true, message: 'Dice roll initiated by host!' };
   }
 
+  public hostStartNextRound(roomId: string, hostUserId: string): { success: boolean; message: string } {
+    const room = this.rooms.get(roomId);
+    if (!room) return { success: false, message: 'Room not found' };
+
+    if (room.hostId !== hostUserId && room.id !== 'public-royal-table') {
+      return { success: false, message: 'Only the table leader can advance to next round' };
+    }
+
+    if (room.phase !== 'payout') {
+      return { success: false, message: 'Cannot start next round outside results phase' };
+    }
+
+    this.startNewRound(room);
+    return { success: true, message: 'Next round started immediately by table leader!' };
+  }
+
   public updateRoomSettings(
     roomId: string,
     hostUserId: string,
@@ -1302,7 +1318,8 @@ export class GameEngine {
 
   /**
    * Handles player voting for Next Round during the payout / results phase.
-   * Round advances only when all connected members of the table have clicked Next Round.
+   * If the Table Leader clicks Next Round, the round starts immediately for everyone.
+   * If non-leaders click, votes are recorded and round starts when all connected members have voted.
    */
   public voteNextRound(roomId: string, userId: string): { success: boolean; allReady: boolean; votes: string[]; message?: string } {
     const room = this.rooms.get(roomId);
@@ -1329,19 +1346,22 @@ export class GameEngine {
       connectedPlayerIds.length > 0 &&
       connectedPlayerIds.every((id) => room.nextRoundVotes!.includes(id));
 
+    const isLeader = room.hostId === userId || room.id === 'public-royal-table';
+
     // Broadcast vote update to all clients in the room
     this.io.to(`room:${roomId}`).emit('game:next_round_votes', {
       votes: room.nextRoundVotes,
       totalPlayers: connectedPlayerIds.length,
-      allReady,
+      allReady: allReady || isLeader,
       voterId: userId,
+      startedByLeader: isLeader,
     });
 
-    if (allReady) {
+    if (allReady || isLeader) {
       this.startNewRound(room);
     }
 
-    return { success: true, allReady, votes: room.nextRoundVotes };
+    return { success: true, allReady: allReady || isLeader, votes: room.nextRoundVotes };
   }
 
   public destroyRoom(roomId: string) {

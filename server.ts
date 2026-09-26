@@ -913,6 +913,14 @@ async function startServer() {
       }
     });
 
+    socket.on('host:start_next_round', (payload: { roomId: string; hostUserId?: string }, callback) => {
+      const hostId = payload.hostUserId || currentUserId || '';
+      const result = gameEngine.hostStartNextRound(payload.roomId, hostId);
+      if (typeof callback === 'function') {
+        callback(result);
+      }
+    });
+
     socket.on('host:roll_now', (payload: { roomId: string; hostUserId?: string }, callback) => {
       const hostId = payload.hostUserId || currentUserId || '';
       const result = gameEngine.forceRollNow(payload.roomId, hostId);

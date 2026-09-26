@@ -303,9 +303,21 @@ drop policy if exists "Enable game_tables update for all" on public.game_tables;
 create policy "Enable game_tables update for all" on public.game_tables
   for update using (true);
 
+-- Only admins and only admins can delete rows from game_tables
 drop policy if exists "Enable game_tables delete for all" on public.game_tables;
-create policy "Enable game_tables delete for all" on public.game_tables
-  for delete using (true);
+drop policy if exists "Admins only can delete game_tables" on public.game_tables;
+drop policy if exists "Admins can delete game_tables" on public.game_tables;
+create policy "Admins only can delete game_tables" on public.game_tables
+  for delete using (
+    exists (
+      select 1 from public.profiles
+      where profiles.id = auth.uid()::text
+      and profiles.is_admin = true
+    )
+    or
+    -- Allow service_role key or superuser bypass
+    current_setting('request.jwt.claims', true)::jsonb->>'role' = 'service_role'
+  );
 
 -- Enable Supabase Realtime for game_tables if publication exists
 do $$

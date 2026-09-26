@@ -24,12 +24,9 @@ import {
   syncTableStateToSupabase,
   fetchRunningTablesFromSupabase,
 } from './services/tableService.js';
-import { MobileHeader } from './components/MobileHeader.js';
-import { ThreeDiceArena } from './components/ThreeDiceArena.js';
-import { MobileBettingMat } from './components/MobileBettingMat.js';
-import { ProfileModal } from './components/ProfileModal.js';
-import { RulesModal } from './components/RulesModal.js';
-import { ActivePlayersDeck, TablePlayer } from './components/ActivePlayersDeck.js';
+import { MobileHeader, MainMenu } from './components/layout/index.js';
+import { ThreeDiceArena } from './components/arena/index.js';
+import { MobileBettingMat, ActivePlayersDeck, TablePlayer } from './components/betting/index.js';
 import {
   SmartBotProfile,
   INITIAL_SMART_BOTS,
@@ -37,17 +34,21 @@ import {
   resolveSmartBotPayouts,
   smartBotToTablePlayer,
 } from './utils/smartBots.js';
-import { MainMenu } from './components/MainMenu.js';
-import { SettingsModal } from './components/SettingsModal.js';
-import { LeaderboardModal } from './components/LeaderboardModal.js';
-import { ShopModal } from './components/ShopModal.js';
-import { AuthModal } from './components/AuthModal.js';
-import { AdminPanelModal } from './components/AdminPanelModal.js';
-import { NotificationModal } from './components/NotificationModal.js';
-import { GameTableModal, PublicRoomSummary } from './components/GameTableModal.js';
-import { TableStatsModal } from './components/TableStatsModal.js';
+import {
+  ProfileModal,
+  RulesModal,
+  SettingsModal,
+  LeaderboardModal,
+  ShopModal,
+  AuthModal,
+  AdminPanelModal,
+  NotificationModal,
+  GameTableModal,
+  PublicRoomSummary,
+  TableStatsModal,
+} from './components/modals/index.js';
 import { voiceService } from './services/voiceService.js';
-import { ErrorBoundary } from './components/ErrorBoundary.js';
+import { ErrorBoundary } from './components/common/index.js';
 import { sound } from './utils/audio.js';
 import { addCoinReceipt, getCoinReceipts } from './utils/coinHistory.js';
 import {
@@ -238,7 +239,7 @@ export default function App() {
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
   const [isShopOpen, setIsShopOpen] = useState(false);
   const [faucetLoading, setFaucetLoading] = useState(false);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' | 'warning' } | null>(null);
 
   // Table & Arena Options
   const [tableTheme, setTableTheme] = useState<'emerald' | 'crimson' | 'midnight'>('emerald');
@@ -275,7 +276,7 @@ export default function App() {
     { id: 'title_master', type: 'title', name: 'Master of Burja', description: 'Exclusive prestigious festival title displayed beside your avatar', price: 3000 },
   ]);
 
-  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   }, []);
@@ -1714,23 +1715,38 @@ export default function App() {
   const startNextRound = useCallback(() => {
     sound.playChipSound();
     const myId = userRef.current.id;
+    const isLeader = Boolean(currentRoomRef.current ? currentRoomRef.current.hostId === myId : true);
 
     // Record user vote
     setNextRoundVotes((prev) => (prev.includes(myId) ? prev : [...prev, myId]));
     setIsUserReady(true);
     setTablePlayers((list) => list.map((p) => (p.id === myId ? { ...p, isReady: true } : p)));
 
-    // If connected to multiplayer room, broadcast vote to server
+    // If connected to multiplayer room, broadcast to server
     if (socket && isConnected && currentRoomRef.current) {
-      socket.emit('game:vote_next_round', {
-        roomId: currentRoomRef.current.id,
-        userId: myId,
-      });
-      showToast('Ready for next round! Waiting for other players...', 'info');
+      if (isLeader) {
+        socket.emit('host:start_next_round', {
+          roomId: currentRoomRef.current.id,
+          hostUserId: myId,
+        });
+        socket.emit('game:vote_next_round', {
+          roomId: currentRoomRef.current.id,
+          userId: myId,
+        });
+        showToast('🎲 Leader started the next round!', 'success');
+      } else {
+        socket.emit('game:vote_next_round', {
+          roomId: currentRoomRef.current.id,
+          userId: myId,
+        });
+        showToast('Ready for next round! Waiting for Leader to start...', 'info');
+      }
     } else {
-      showToast('Ready for next round!', 'info');
+      // Local mode: Advance immediately when user clicks Next Round
+      advanceToNextRoundLocally();
+      showToast('Next round started! Place your bets.', 'success');
     }
-  }, [socket, isConnected, showToast]);
+  }, [socket, isConnected, showToast, advanceToNextRoundLocally]);
 
   // Bot Next Round Consensus Voting Simulation (Human-like random delays)
   useEffect(() => {
@@ -2639,10 +2655,33 @@ export default function App() {
 
   // Handle Bet Placement on Symbol
   const handlePlaceBet = (symbol: SymbolType, amount: number) => {
-    if (phase !== 'betting') {
-      showToast('Betting is closed during rolling and payouts', 'error');
+    const isHost = Boolean(currentRoom ? currentRoom.hostId === user.id : true);
+
+    if (phase === 'waiting') {
+      sound.playDiceLandSound();
+      if (isHost) {
+        showToast('Please click Start Game 🎲 before placing bets!', 'warning');
+      } else {
+        showToast('Waiting for the table leader to start the game before placing bets.', 'info');
+      }
       return;
     }
+
+    if (phase === 'rolling') {
+      showToast('🎲 Dice are rolling! Betting is closed for this round.', 'warning');
+      return;
+    }
+
+    if (phase === 'payout') {
+      showToast('Round ended! Click Next Round to start the next betting round.', 'info');
+      return;
+    }
+
+    if (phase !== 'betting') {
+      showToast('Betting is closed', 'error');
+      return;
+    }
+
     if (user.coins < amount) {
       sound.playDiceLandSound();
       showToast("You don't have enough coins.", 'error');
@@ -2687,6 +2726,15 @@ export default function App() {
 
   // Clear all bets
   const handleClearBets = () => {
+    const isHost = Boolean(currentRoom ? currentRoom.hostId === user.id : true);
+    if (phase === 'waiting') {
+      if (isHost) {
+        showToast('Please click Start Game 🎲 before placing bets!', 'warning');
+      } else {
+        showToast('Waiting for the table leader to start the game before placing bets.', 'info');
+      }
+      return;
+    }
     if (phase !== 'betting') return;
     const totalRefund = (Object.values(myBets) as number[]).reduce((a, b) => a + b, 0);
     if (totalRefund === 0) return;
@@ -2709,6 +2757,16 @@ export default function App() {
 
   // Double all current bets
   const handleDoubleBets = () => {
+    const isHost = Boolean(currentRoom ? currentRoom.hostId === user.id : true);
+    if (phase === 'waiting') {
+      sound.playDiceLandSound();
+      if (isHost) {
+        showToast('Please click Start Game 🎲 before placing bets!', 'warning');
+      } else {
+        showToast('Waiting for the table leader to start the game before placing bets.', 'info');
+      }
+      return;
+    }
     if (phase !== 'betting') return;
     const currentTotal = (Object.values(myBets) as number[]).reduce((a, b) => a + b, 0);
     if (currentTotal === 0) return;
@@ -2735,6 +2793,16 @@ export default function App() {
 
   // Repeat Previous Round's Bets
   const handleRepeatBets = () => {
+    const isHost = Boolean(currentRoom ? currentRoom.hostId === user.id : true);
+    if (phase === 'waiting') {
+      sound.playDiceLandSound();
+      if (isHost) {
+        showToast('Please click Start Game 🎲 before placing bets!', 'warning');
+      } else {
+        showToast('Waiting for the table leader to start the game before placing bets.', 'info');
+      }
+      return;
+    }
     if (phase !== 'betting' || !previousBets) return;
     const repeatTotal = (Object.values(previousBets) as number[]).reduce((a, b) => a + b, 0);
     if (repeatTotal === 0) return;
@@ -2915,13 +2983,19 @@ export default function App() {
               ? 'bg-rose-950/95 border-rose-500/60 text-rose-200'
               : toast.type === 'success'
               ? 'bg-emerald-950/95 border-emerald-500/60 text-emerald-200'
+              : toast.type === 'warning'
+              ? 'bg-amber-950/95 border-amber-500/60 text-amber-200'
               : 'bg-slate-900/95 border-amber-500/40 text-amber-200'
           }`}
         >
           {toast.type === 'error' ? (
             <AlertCircle className="w-3 h-3 text-rose-400 shrink-0" />
-          ) : (
+          ) : toast.type === 'warning' ? (
+            <AlertCircle className="w-3 h-3 text-amber-400 shrink-0" />
+          ) : toast.type === 'success' ? (
             <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+          ) : (
+            <Sparkles className="w-3 h-3 text-amber-400 shrink-0" />
           )}
           <span className="truncate whitespace-nowrap">{toast.message}</span>
         </div>
@@ -3035,18 +3109,24 @@ export default function App() {
                 tableTheme={tableTheme}
                 defaultCameraView={defaultCameraView}
                 bettingTimer={bettingTimer}
+                players={activeTablePlayers}
+                currentUserId={user.id}
               />
 
-              {/* Waiting for next round consensus indicator floating on top of 3D view at middle bottom */}
+              {/* Waiting for next round status badge floating at top-center of 3D view */}
               {phase === 'payout' && (
                 <div
                   id="consensus-next-round-overlay"
-                  className="absolute bottom-2.5 left-1/2 -translate-x-1/2 z-20 pointer-events-none flex items-center gap-2 px-3 py-1 rounded-full bg-slate-950/90 backdrop-blur-md border border-amber-500/50 shadow-2xl text-amber-200 font-mono text-[11px] whitespace-nowrap animate-in fade-in zoom-in-95 duration-200 select-none max-w-[95%]"
+                  className="absolute top-2.5 left-1/2 -translate-x-1/2 z-20 pointer-events-none flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-950/90 backdrop-blur-md border border-amber-500/40 shadow-xl text-amber-200 font-mono text-[10px] whitespace-nowrap animate-in fade-in zoom-in-95 duration-200 select-none max-w-[95%]"
                 >
-                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping shrink-0" />
-                  <span className="font-medium text-amber-100/95 truncate">Waiting for all members to click Next Round</span>
-                  <span className="font-bold bg-amber-500/25 px-2 py-0.5 rounded-md border border-amber-400/50 text-amber-300 shrink-0">
-                    {nextRoundVotes.length} / {Math.max(1, activeTablePlayers.length)} Ready
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping shrink-0" />
+                  <span className="font-medium text-amber-100/90 truncate">
+                    {Boolean(currentRoom ? currentRoom.hostId === user.id : true)
+                      ? 'Leader: Click Next Round to start'
+                      : 'Waiting for Leader to start'}
+                  </span>
+                  <span className="font-bold bg-amber-500/25 px-1.5 py-0.2 rounded text-[9px] border border-amber-400/40 text-amber-300 shrink-0">
+                    {nextRoundVotes.length}/{Math.max(1, activeTablePlayers.length)} Ready
                   </span>
                 </div>
               )}
