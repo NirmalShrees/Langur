@@ -1325,6 +1325,12 @@ export default function App() {
   // 4. Automatic Table Voice Chat Connection
   // Sound of other players is enabled by default, and mic is off by default
   useEffect(() => {
+    if (socket) {
+      voiceService.setSocket(socket);
+    }
+  }, [socket]);
+
+  useEffect(() => {
     if (!isInGame || !user?.id) {
       voiceService.leaveVoice();
       return;
@@ -1336,11 +1342,7 @@ export default function App() {
       username: user.username || 'Player',
       avatar: user.avatar || '🎲',
     });
-
-    return () => {
-      voiceService.leaveVoice();
-    };
-  }, [isInGame, currentRoom?.id, user?.id, user?.username, user?.avatar]);
+  }, [isInGame, currentRoom?.id, user?.id, socket, isConnected]);
 
   const handleAuthSuccess = useCallback(
     async (authedUser: UserProfile) => {

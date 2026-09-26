@@ -1085,12 +1085,13 @@ async function startServer() {
     });
 
     // Ultra-reliable low-latency audio chunk relay (handles NAT/firewall peer connection fallbacks)
-    socket.on('voice:audio_stream', (payload: { roomId: string; userId: string; username: string; audioData: string }) => {
+    socket.on('voice:audio_stream', (payload: { roomId: string; userId: string; username: string; audioData: string; sampleRate?: number }) => {
       if (!payload?.roomId || !payload.audioData) return;
       socket.to(`voice:${payload.roomId}`).emit('voice:incoming_audio', {
         fromUserId: payload.userId,
         fromUsername: payload.username,
         audioData: payload.audioData,
+        sampleRate: payload.sampleRate || 16000,
       });
     });
 
