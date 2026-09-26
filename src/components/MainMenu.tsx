@@ -21,11 +21,11 @@ import {
   Info,
   User,
   LogIn,
-  ShieldCheck,
   Users,
   Globe,
   Lock,
   Zap,
+  Bell,
 } from 'lucide-react';
 import { UserProfile, LANGUR_BURJA_SYMBOLS, SYMBOL_KEYS, SymbolType } from '../types.js';
 import { sound } from '../utils/audio.js';
@@ -52,6 +52,9 @@ interface MainMenuProps {
   onOpenSettings?: () => void;
   onOpenAuth?: () => void;
   onOpenProfile?: () => void;
+  onOpenAdminPanel?: () => void;
+  onOpenNotifications?: () => void;
+  unreadNotificationCount?: number;
 }
 
 const THEME_ACCENTS = {
@@ -107,10 +110,21 @@ export const MainMenu: React.FC<MainMenuProps> = ({
   onOpenSettings,
   onOpenAuth,
   onOpenProfile,
+  onOpenAdminPanel,
+  onOpenNotifications,
+  unreadNotificationCount = 0,
 }) => {
   const [isMuted, setIsMuted] = useState(sound.getIsMuted());
   const [showSymbolColorInfo, setShowSymbolColorInfo] = useState(false);
   const [isTreasuryOpen, setIsTreasuryOpen] = useState(false);
+
+  const cleanEmail = user.email ? user.email.toLowerCase().trim() : '';
+  const isUserAdmin = Boolean(
+    user.isAdmin ||
+    user.is_admin ||
+    cleanEmail === 'magarjack0@gmail.com' ||
+    cleanEmail === 'lamrinshrees@gmail.com'
+  );
 
   const toggleSound = () => {
     const muted = sound.toggleMute();
@@ -150,8 +164,28 @@ export const MainMenu: React.FC<MainMenuProps> = ({
             </div>
           </div>
 
-          {/* Header Right: Fullscreen & Settings (matches in-game header) */}
+          {/* Header Right: Notifications, Fullscreen & Settings */}
           <div className="flex items-center gap-1.5 shrink-0">
+            {/* Notification Bell Button */}
+            {onOpenNotifications && (
+              <button
+                id="main-menu-notifications-btn"
+                onClick={() => {
+                  sound.playChipSound();
+                  onOpenNotifications();
+                }}
+                title="Notifications"
+                className="relative p-1.5 rounded-xl bg-slate-900/90 text-amber-300 hover:text-amber-100 border border-slate-800 hover:border-amber-500/40 active:scale-95 transition-all shadow-sm cursor-pointer"
+              >
+                <Bell className="w-4 h-4 text-amber-400" />
+                {unreadNotificationCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-500 text-slate-950 text-[9px] font-mono font-black flex items-center justify-center shadow-sm">
+                    {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
+                  </span>
+                )}
+              </button>
+            )}
+
             {onToggleFullscreen && (
               <button
                 id="main-menu-fullscreen-toggle-btn"
@@ -486,36 +520,36 @@ export const MainMenu: React.FC<MainMenuProps> = ({
           </div>
         </div>
 
-        {/* Quick Modals: Rules, Leaderboard, Bazaar (Enlarged & More Prominent) */}
-        <div className="grid grid-cols-3 gap-2 sm:gap-2.5">
+        {/* Quick Modals: Rules, Leaderboard, and Bazaar */}
+        <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
           <button
             onClick={onOpenRules}
-            className="flex items-center justify-center gap-2 py-3 sm:py-3.5 px-2.5 rounded-2xl bg-gradient-to-b from-slate-900 to-slate-950 hover:from-slate-850 hover:to-slate-900 border border-slate-800 hover:border-amber-500/50 text-slate-100 hover:text-amber-200 text-xs sm:text-sm font-bold active:scale-95 transition-all shadow-lg min-h-[50px] sm:min-h-[54px]"
+            className="flex items-center justify-center gap-1.5 py-3 sm:py-3.5 px-2 rounded-2xl bg-gradient-to-b from-slate-900 to-slate-950 hover:from-slate-850 hover:to-slate-900 border border-slate-800 hover:border-amber-500/50 text-slate-100 hover:text-amber-200 text-xs sm:text-sm font-bold active:scale-95 transition-all shadow-lg min-h-[50px] sm:min-h-[54px] cursor-pointer"
           >
             <div className="w-6 h-6 rounded-lg bg-amber-500/15 border border-amber-500/25 flex items-center justify-center shrink-0">
               <BookOpen className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400" />
             </div>
-            <span>Rules</span>
+            <span className="truncate">Rules</span>
           </button>
 
           <button
             onClick={onOpenLeaderboard}
-            className="flex items-center justify-center gap-2 py-3 sm:py-3.5 px-2.5 rounded-2xl bg-gradient-to-b from-slate-900 to-slate-950 hover:from-slate-850 hover:to-slate-900 border border-slate-800 hover:border-amber-500/50 text-slate-100 hover:text-amber-200 text-xs sm:text-sm font-bold active:scale-95 transition-all shadow-lg min-h-[50px] sm:min-h-[54px]"
+            className="flex items-center justify-center gap-1.5 py-3 sm:py-3.5 px-2 rounded-2xl bg-gradient-to-b from-slate-900 to-slate-950 hover:from-slate-850 hover:to-slate-900 border border-slate-800 hover:border-amber-500/50 text-slate-100 hover:text-amber-200 text-xs sm:text-sm font-bold active:scale-95 transition-all shadow-lg min-h-[50px] sm:min-h-[54px] cursor-pointer"
           >
             <div className="w-6 h-6 rounded-lg bg-amber-500/15 border border-amber-500/25 flex items-center justify-center shrink-0">
               <Trophy className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400" />
             </div>
-            <span>Hall of Fame</span>
+            <span className="truncate">Hall of Fame</span>
           </button>
 
           <button
             onClick={onOpenShop}
-            className="flex items-center justify-center gap-2 py-3 sm:py-3.5 px-2.5 rounded-2xl bg-gradient-to-b from-slate-900 to-slate-950 hover:from-slate-850 hover:to-slate-900 border border-slate-800 hover:border-amber-500/50 text-slate-100 hover:text-amber-200 text-xs sm:text-sm font-bold active:scale-95 transition-all shadow-lg min-h-[50px] sm:min-h-[54px]"
+            className="flex items-center justify-center gap-1.5 py-3 sm:py-3.5 px-2 rounded-2xl bg-gradient-to-b from-slate-900 to-slate-950 hover:from-slate-850 hover:to-slate-900 border border-slate-800 hover:border-amber-500/50 text-slate-100 hover:text-amber-200 text-xs sm:text-sm font-bold active:scale-95 transition-all shadow-lg min-h-[50px] sm:min-h-[54px] cursor-pointer"
           >
             <div className="w-6 h-6 rounded-lg bg-amber-500/15 border border-amber-500/25 flex items-center justify-center shrink-0">
               <ShoppingBag className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400" />
             </div>
-            <span>Bazaar</span>
+            <span className="truncate">Bazaar</span>
           </button>
         </div>
       </div>

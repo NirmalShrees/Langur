@@ -744,12 +744,12 @@ export const GameTableModal: React.FC<GameTableModalProps> = ({
                 </button>
               </div>
 
-              {/* Option C: Active Public Tables Browser */}
+              {/* Option C: Available Tables Browser */}
               <div className="space-y-2 pt-1">
                 <div className="flex items-center justify-between px-1">
                   <div className="flex items-center gap-1.5 text-xs font-bold text-slate-300">
                     <Users className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Active Public Tables</span>
+                    <span>Available Tables</span>
                   </div>
                   {onRefreshRooms && (
                     <button
@@ -758,7 +758,7 @@ export const GameTableModal: React.FC<GameTableModalProps> = ({
                       onClick={handleRefreshRooms}
                       disabled={isRefreshingRooms}
                       className="text-[10px] text-amber-400 hover:text-amber-300 flex items-center gap-1.5 font-mono cursor-pointer disabled:opacity-50"
-                      title="Refresh Public Tables"
+                      title="Refresh Available Tables"
                     >
                       <RefreshCw className={`w-3 h-3 ${isRefreshingRooms ? 'animate-spin text-amber-300' : ''}`} />
                       <span>{isRefreshingRooms ? 'Refreshing...' : 'Refresh'}</span>
@@ -766,14 +766,7 @@ export const GameTableModal: React.FC<GameTableModalProps> = ({
                   )}
                 </div>
 
-                {publicRooms.length === 0 ? (
-                  <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800/80 text-center text-xs text-slate-400 space-y-1">
-                    <p className="font-medium text-slate-300">No active public tables right now.</p>
-                    <p className="text-[11px] text-slate-500">
-                      Create a public table to get started, or join a friend using their table code!
-                    </p>
-                  </div>
-                ) : (
+                {publicRooms.length > 0 ? (
                   <div className="space-y-2">
                     {publicRooms.map((room) => (
                       <div
@@ -815,6 +808,11 @@ export const GameTableModal: React.FC<GameTableModalProps> = ({
                         </button>
                       </div>
                     ))}
+                  </div>
+                ) : (
+                  <div className="py-4 px-3 rounded-2xl bg-slate-950/40 border border-slate-800/60 text-center">
+                    <p className="text-xs text-slate-400 font-medium">No open public tables found</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">Click Refresh to scan again or Join Random Table above</p>
                   </div>
                 )}
               </div>

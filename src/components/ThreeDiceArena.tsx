@@ -441,7 +441,7 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
     scene.add(trayGroup);
 
     // Royal Velvet Felt Floor (Emerald, Crimson Festive, or Midnight Blue)
-    const feltGeo = new THREE.CylinderGeometry(3.5, 3.5, 0.2, 48);
+    const feltGeo = new THREE.CylinderGeometry(3.5, 3.5, 0.2, 32);
     const feltColorHex =
       tableTheme === 'crimson'
         ? 0x420c14
@@ -460,8 +460,8 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
     trayGroup.add(feltFloor);
 
     // Solid 3D Ornate Brass Inlay Rings on the felt
-    // Uses true 3D Torus geometry with thickness & distinct elevation to completely prevent Z-fighting and flickering on mobile
-    const mandalaRingGeo = new THREE.TorusGeometry(2.54, 0.024, 8, 64);
+    // Optimized polygon count with crisp appearance
+    const mandalaRingGeo = new THREE.TorusGeometry(2.54, 0.024, 6, 36);
     const mandalaRingMat = new THREE.MeshStandardMaterial({
       color: 0xd4af37,
       roughness: 0.25,
@@ -473,14 +473,14 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
     trayGroup.add(mandalaRing);
 
     // Inner subtle secondary gold ring for traditional mandala inlay
-    const innerRingGeo = new THREE.TorusGeometry(1.85, 0.016, 8, 64);
+    const innerRingGeo = new THREE.TorusGeometry(1.85, 0.016, 6, 36);
     const innerRing = new THREE.Mesh(innerRingGeo, mandalaRingMat);
     innerRing.rotation.x = Math.PI / 2;
     innerRing.position.y = 0.118;
     trayGroup.add(innerRing);
 
     // Tray Outer Wall (Deep dark carved Himalayan Rosewood)
-    const rimWallGeo = new THREE.TorusGeometry(3.52, 0.25, 16, 64);
+    const rimWallGeo = new THREE.TorusGeometry(3.52, 0.25, 10, 36);
     const rimMat = new THREE.MeshStandardMaterial({
       color: 0x241006, // Deep dark rosewood with subtle warm tint
       roughness: 0.3,
@@ -494,7 +494,7 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
     trayGroup.add(rimWall);
 
     // Brass Accent Bevel on the Tray Lip
-    const brassLipGeo = new THREE.TorusGeometry(3.52, 0.06, 12, 64);
+    const brassLipGeo = new THREE.TorusGeometry(3.52, 0.06, 8, 36);
     const brassLipMat = new THREE.MeshStandardMaterial({
       color: 0xd4af37,
       metalness: 0.84,
@@ -537,7 +537,7 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
     cupPoints.push(new THREE.Vector2(1.02, 0.22));
     cupPoints.push(new THREE.Vector2(0, 0.20));
 
-    const cupGeo = new THREE.LatheGeometry(cupPoints, 40);
+    const cupGeo = new THREE.LatheGeometry(cupPoints, 24);
     const brassMat = new THREE.MeshStandardMaterial({
       color: 0xd9b343,
       metalness: 0.80,
@@ -562,39 +562,39 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
     });
 
     // Mouth lip gold ring
-    const lipRingGeo = new THREE.TorusGeometry(1.84, 0.045, 10, 40);
+    const lipRingGeo = new THREE.TorusGeometry(1.84, 0.045, 6, 24);
     const lipRing = new THREE.Mesh(lipRingGeo, goldTrimMat);
     lipRing.rotation.x = Math.PI / 2;
     lipRing.position.y = -1.21;
     cupGroup.add(lipRing);
 
     // Waist rib gold rings
-    const waistRing1Geo = new THREE.TorusGeometry(1.48, 0.035, 10, 40);
+    const waistRing1Geo = new THREE.TorusGeometry(1.48, 0.035, 6, 24);
     const waistRing1 = new THREE.Mesh(waistRing1Geo, goldTrimMat);
     waistRing1.rotation.x = Math.PI / 2;
     waistRing1.position.y = 0.11;
     cupGroup.add(waistRing1);
 
-    const waistRing2Geo = new THREE.TorusGeometry(1.52, 0.035, 10, 40);
+    const waistRing2Geo = new THREE.TorusGeometry(1.52, 0.035, 6, 24);
     const waistRing2 = new THREE.Mesh(waistRing2Geo, goldTrimMat);
     waistRing2.rotation.x = Math.PI / 2;
     waistRing2.position.y = -0.07;
     cupGroup.add(waistRing2);
 
     // Base pedestal accent ring
-    const basePedestalRingGeo = new THREE.TorusGeometry(1.36, 0.04, 10, 40);
+    const basePedestalRingGeo = new THREE.TorusGeometry(1.36, 0.04, 6, 24);
     const basePedestalRing = new THREE.Mesh(basePedestalRingGeo, goldTrimMat);
     basePedestalRing.rotation.x = Math.PI / 2;
     basePedestalRing.position.y = 1.11;
     cupGroup.add(basePedestalRing);
 
     // Traditional Royal Solar Emblem on bucket flank
-    const medallionGeo = new THREE.TorusGeometry(0.22, 0.03, 8, 24);
+    const medallionGeo = new THREE.TorusGeometry(0.22, 0.03, 6, 16);
     const medallion = new THREE.Mesh(medallionGeo, goldTrimMat);
     medallion.position.set(0, 0.02, 1.48);
     cupGroup.add(medallion);
 
-    const studGeo = new THREE.SphereGeometry(0.08, 8, 8);
+    const studGeo = new THREE.SphereGeometry(0.08, 6, 6);
     const stud = new THREE.Mesh(studGeo, goldTrimMat);
     stud.position.set(0, 0.02, 1.48);
     cupGroup.add(stud);
@@ -1198,10 +1198,9 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
       {phase === 'betting' && bettingTimer !== undefined && bettingTimer <= 3 && bettingTimer >= 1 && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30 select-none">
           <div
-            key={bettingTimer}
-            className="flex items-center justify-center w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-slate-950/85 border border-amber-400/70 shadow-lg backdrop-blur-sm animate-in zoom-in-75 duration-150"
+            className="flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-slate-950/90 border border-amber-400/80 shadow-2xl backdrop-blur-md animate-timer-urgent"
           >
-            <span className="font-mono text-xl sm:text-2xl font-black text-amber-400 drop-shadow">
+            <span className="font-mono text-2xl sm:text-3xl font-black text-amber-400 drop-shadow-md">
               {bettingTimer}
             </span>
           </div>

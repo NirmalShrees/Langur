@@ -1,5 +1,5 @@
 import React from 'react';
-import { Coins, Sparkles, Settings, Maximize2, Minimize2, Home, Share2, Crown, Users } from 'lucide-react';
+import { Coins, Sparkles, Settings, Maximize2, Minimize2, Home, Share2, Crown, Users, Bell } from 'lucide-react';
 import { UserProfile, RoomState } from '../types.js';
 import { UserAvatar } from './UserAvatar.js';
 
@@ -15,6 +15,8 @@ interface MobileHeaderProps {
   onToggleFullscreen: () => void;
   onReturnToMainMenu?: () => void;
   onOpenTableStats?: () => void;
+  onOpenNotifications?: () => void;
+  unreadNotificationCount?: number;
 }
 
 export const MobileHeader: React.FC<MobileHeaderProps> = ({
@@ -28,6 +30,8 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
   isFullscreen,
   onToggleFullscreen,
   onReturnToMainMenu,
+  onOpenNotifications,
+  unreadNotificationCount = 0,
 }) => {
   return (
     <header
@@ -61,8 +65,25 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
           </div>
         </button>
 
-        {/* Right Actions: Share, Return to Main Menu, Fullscreen, Settings */}
+        {/* Right Actions: Notifications, Share, Return to Main Menu, Fullscreen, Settings */}
         <div className="flex items-center gap-1.5 shrink-0">
+          {/* Notifications Button */}
+          {onOpenNotifications && (
+            <button
+              id="header-mobile-notifications-btn"
+              onClick={onOpenNotifications}
+              title="Notifications"
+              className="relative p-1.5 rounded-xl bg-slate-900/90 text-amber-300 hover:text-amber-100 border border-slate-800 hover:border-amber-500/40 active:scale-95 transition-all shadow-sm cursor-pointer"
+            >
+              <Bell className="w-4 h-4 text-amber-400" />
+              {unreadNotificationCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-amber-500 text-slate-950 text-[8px] font-mono font-black flex items-center justify-center shadow-sm">
+                  {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
+                </span>
+              )}
+            </button>
+          )}
+
           {/* Share Table Button with Table Code in Same Badge */}
           {onShareTable && (
             <button

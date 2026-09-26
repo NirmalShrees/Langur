@@ -129,6 +129,9 @@ export async function fetchRemoteProfile(userId: string): Promise<UserProfile | 
       setCoinReceipts(data.id, remoteCoinHistory);
     }
 
+    const isSuperAdmin = cleanEmail ? cleanEmail === 'lamrinshrees@gmail.com' : false;
+    const isAdmin = Boolean(data.is_admin === true || isSuperAdmin || rawStats.isAdmin === true);
+
     return {
       id: data.id,
       email: data.email || undefined,
@@ -139,6 +142,8 @@ export async function fetchRemoteProfile(userId: string): Promise<UserProfile | 
       gamesPlayed: data.games_played ?? rawStats.gamesPlayed ?? 0,
       gamesWon: data.games_won ?? rawStats.gamesWon ?? 0,
       biggestWin: data.biggest_win ?? rawStats.biggestWin ?? 0,
+      isAdmin,
+      is_admin: isAdmin,
       inventory: Array.isArray(data.inventory)
         ? data.inventory
         : (Array.isArray(rawStats.inventory) ? rawStats.inventory : ['dice_classic', 'mat_velvet_green', 'title_novice']),

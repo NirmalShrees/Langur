@@ -42,12 +42,24 @@ import { SettingsModal } from './components/SettingsModal.js';
 import { LeaderboardModal } from './components/LeaderboardModal.js';
 import { ShopModal } from './components/ShopModal.js';
 import { AuthModal } from './components/AuthModal.js';
+import { AdminPanelModal } from './components/AdminPanelModal.js';
+import { NotificationModal } from './components/NotificationModal.js';
 import { GameTableModal, PublicRoomSummary } from './components/GameTableModal.js';
 import { TableStatsModal } from './components/TableStatsModal.js';
 import { voiceService } from './services/voiceService.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { sound } from './utils/audio.js';
 import { addCoinReceipt, getCoinReceipts } from './utils/coinHistory.js';
+import {
+  AppNotification,
+  getStoredNotifications,
+  saveNotifications,
+  addNotification,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
+  clearAllNotifications,
+  deleteNotification,
+} from './utils/notifications.js';
 import {
   getStoredLocalProfile,
   saveLocalProfile,
@@ -219,6 +231,9 @@ export default function App() {
 
   // Modals & Extras
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
+  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+  const [notifications, setNotifications] = useState<AppNotification[]>(() => getStoredNotifications());
   const [isRulesOpen, setIsRulesOpen] = useState(false);
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
   const [isShopOpen, setIsShopOpen] = useState(false);
@@ -267,6 +282,7 @@ export default function App() {
 
   const isRollingInitiatedRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const localBettingPhaseStartRef = useRef<number>(Date.now());
 
   const handleGoogleAuthSession = useCallback(
     async (sessionUser: any, isInitialCheck = false) => {
@@ -633,6 +649,16 @@ export default function App() {
               showToast('⚡ Reconnected to table successfully!', 'success');
             }
           }
+        });
+      }
+
+      // Auto re-join voice channel if currently in game
+      if (isInGameRef.current && userRef.current?.id) {
+        const targetVoiceRoom = currentRoomRef.current?.id || 'public_table';
+        voiceService.joinVoice(targetVoiceRoom, {
+          id: userRef.current.id,
+          username: userRef.current.username || 'Player',
+          avatar: userRef.current.avatar || '🎲',
         });
       }
 
@@ -1177,6 +1203,107 @@ export default function App() {
       }
     });
 
+    // Real-Time Admin Socket Listeners
+    s.on('user:balance_updated', (payload: { coins: number; delta: number; reason: string; receipt?: any }) => {
+      setUser((u) => {
+        const updated = { ...u, coins: payload.coins };
+        saveLocalProfile(updated);
+        return updated;
+      });
+
+      const note = addNotification({
+        title: payload.delta >= 0 ? '🪙 Treasury Grant' : '🪙 Balance Adjustment',
+        message: payload.reason
+          ? `${payload.reason} (${payload.delta >= 0 ? `+${payload.delta.toLocaleString()}` : payload.delta.toLocaleString()} 🪙)`
+          : `Balance updated to ${payload.coins.toLocaleString()} 🪙`,
+        type: payload.delta >= 0 ? 'reward' : 'treasury',
+        deltaCoins: payload.delta,
+      });
+      setNotifications((prev) => [note, ...prev.filter((n) => n.id !== note.id)]);
+
+      if (payload.delta > 0) {
+        sound.playWinFanfare();
+        showToast(`🪙 Treasury Grant: +${payload.delta.toLocaleString()} coins (${payload.reason})`, 'success');
+      } else {
+        sound.playChipSound();
+        showToast(`🪙 Balance updated: ${payload.coins.toLocaleString()} coins`, 'info');
+      }
+    });
+
+    s.on('user:coins_changed', (payload: { userId: string; coins: number; delta?: number; reason?: string }) => {
+      if (payload.userId === userRef.current.id) {
+        setUser((u) => {
+          const updated = { ...u, coins: payload.coins };
+          saveLocalProfile(updated);
+          return updated;
+        });
+      }
+      setTablePlayers((list) =>
+        list.map((p) => (p.id === payload.userId ? { ...p, coins: payload.coins } : p))
+      );
+      if (currentRoomRef.current?.players?.[payload.userId]) {
+        setCurrentRoom((prev) => {
+          if (!prev || !prev.players[payload.userId]) return prev;
+          return {
+            ...prev,
+            players: {
+              ...prev.players,
+              [payload.userId]: {
+                ...prev.players[payload.userId],
+                coins: payload.coins,
+              },
+            },
+          };
+        });
+      }
+    });
+
+    s.on('rooms:updated', (payload: { rooms?: PublicRoomSummary[] }) => {
+      if (payload?.rooms) {
+        setPublicRooms(payload.rooms);
+      } else {
+        s.emit('room:get_public', (res: { rooms: PublicRoomSummary[] }) => {
+          if (res?.rooms) setPublicRooms(res.rooms);
+        });
+      }
+    });
+
+    s.on('user:admin_status_changed', (payload: { isAdmin: boolean }) => {
+      setUser((u) => {
+        const updated = { ...u, isAdmin: payload.isAdmin, is_admin: payload.isAdmin };
+        saveLocalProfile(updated);
+        return updated;
+      });
+
+      const note = addNotification({
+        title: payload.isAdmin ? '👑 Admin Privileges Granted' : 'Admin Privileges Revoked',
+        message: payload.isAdmin
+          ? 'You now have Supreme Admin privileges to manage players, tables, and treasury.'
+          : 'Your admin privileges have been updated.',
+        type: 'system',
+      });
+      setNotifications((prev) => [note, ...prev.filter((n) => n.id !== note.id)]);
+
+      if (payload.isAdmin) {
+        sound.playWinFanfare();
+        showToast('👑 You have been granted Supreme Admin Privileges!', 'success');
+      } else {
+        showToast('Admin privileges revoked.', 'info');
+      }
+    });
+
+    s.on('admin:global_broadcast', (payload: { title: string; message: string; type?: 'info' | 'success' | 'warning' }) => {
+      sound.playJackpotSound();
+      showToast(`📢 ${payload.title}: ${payload.message}`, payload.type === 'warning' ? 'error' : payload.type === 'success' ? 'success' : 'info');
+
+      const note = addNotification({
+        title: `📢 ${payload.title || 'Announcement'}`,
+        message: payload.message,
+        type: 'announcement',
+      });
+      setNotifications((prev) => [note, ...prev.filter((n) => n.id !== note.id)]);
+    });
+
     s.on('disconnect', () => {
       setIsConnected(false);
       measureLatency(null);
@@ -1194,6 +1321,26 @@ export default function App() {
       s.disconnect();
     };
   }, [user.id]);
+
+  // 4. Automatic Table Voice Chat Connection
+  // Sound of other players is enabled by default, and mic is off by default
+  useEffect(() => {
+    if (!isInGame || !user?.id) {
+      voiceService.leaveVoice();
+      return;
+    }
+
+    const targetVoiceRoom = currentRoom?.id || 'public_table';
+    voiceService.joinVoice(targetVoiceRoom, {
+      id: user.id,
+      username: user.username || 'Player',
+      avatar: user.avatar || '🎲',
+    });
+
+    return () => {
+      voiceService.leaveVoice();
+    };
+  }, [isInGame, currentRoom?.id, user?.id, user?.username, user?.avatar]);
 
   const handleAuthSuccess = useCallback(
     async (authedUser: UserProfile) => {
@@ -1443,33 +1590,35 @@ export default function App() {
     }, 4600);
   }, []);
 
-  // Automated Betting Countdown Timer Engine (Solo practice & public fallback)
+  // Automated Betting Countdown Timer Engine (Solo practice & local fallback)
   useEffect(() => {
     // In synchronized multiplayer rooms, countdown is driven strictly by server game:timer_tick!
     if (currentRoom) return;
     if (phase !== 'betting') return;
 
+    localBettingPhaseStartRef.current = Date.now();
+    setBettingTimer(BETTING_DURATION);
+
     const timer = setInterval(() => {
-      setBettingTimer((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          executeLocalRoll();
-          return 0;
-        }
-        const next = prev - 1;
+      const elapsedSec = Math.floor((Date.now() - localBettingPhaseStartRef.current) / 1000);
+      const remaining = Math.max(0, BETTING_DURATION - elapsedSec);
 
-        // In private tables: BOTS MUST NOT EXIST - no bot betting simulation
-        if (currentRoomRef.current?.isPrivate) {
-          return next;
-        }
+      setBettingTimer(remaining);
 
-        // In public tables: Intelligent Bots place strategic bets according to their schedule
+      if (remaining <= 0) {
+        clearInterval(timer);
+        executeLocalRoll();
+        return;
+      }
+
+      // In public tables: Intelligent Bots place strategic bets according to their schedule
+      if (!currentRoomRef.current?.isPrivate) {
         const actingBots = smartBotsRef.current.filter(
-          (b) => b.betPlacedAtSeconds === next && !b.isReady
+          (b) => b.betPlacedAtSeconds === remaining && !b.isReady
         );
         if (actingBots.length > 0) {
           smartBotsRef.current = smartBotsRef.current.map((b) => {
-            if (b.betPlacedAtSeconds === next) {
+            if (b.betPlacedAtSeconds === remaining) {
               return { ...b, isReady: true };
             }
             return b;
@@ -1497,30 +1646,16 @@ export default function App() {
             return nextBets;
           });
         }
-
-        return next;
-      });
-    }, 1000);
+      }
+    }, 250); // High-frequency sampling prevents frame skips and guarantees true 1.0s decrements
 
     return () => clearInterval(timer);
   }, [phase, currentRoom, executeLocalRoll]);
 
-  // Auto-roll check: In solo mode, if all players are ready first, roll immediately!
-  useEffect(() => {
-    if (currentRoom) return;
-    if (phase !== 'betting') return;
-    const allOthersReady = tablePlayers.every((p) => p.isReady);
-    if (isUserReady && allOthersReady) {
-      const timeout = setTimeout(() => {
-        executeLocalRoll();
-      }, 500);
-      return () => clearTimeout(timeout);
-    }
-  }, [phase, isUserReady, tablePlayers, currentRoom, executeLocalRoll]);
-
   // Advance to Next Round in Local Mode (or when all consensus votes are in)
   const advanceToNextRoundLocally = useCallback(() => {
     isRollingInitiatedRef.current = false;
+    localBettingPhaseStartRef.current = Date.now();
     setPhase('betting');
     setLastResult(undefined);
     setNextRoundVotes([]);
@@ -1672,28 +1807,13 @@ export default function App() {
   // Table Action Handlers (Create Table, Join Table by Code, Join Random Table, Share Table)
   const handleRefreshPublicRooms = useCallback(async () => {
     try {
-      // Clean up any 0-player tables from Supabase before fetching
-      await deleteZeroPlayerTablesFromSupabase().catch(() => {});
+      // 1. Trigger server and client cleanup to ensure orphaned/empty tables are purged
+      await Promise.all([
+        fetch('/api/tables/cleanup').catch(() => {}),
+        deleteZeroPlayerTablesFromSupabase().catch(() => {}),
+      ]);
 
-      // 1. Fetch persistent active public tables from Supabase
-      const sbResult = await fetchRunningTablesFromSupabase();
-      const sbRooms: PublicRoomSummary[] = (sbResult?.tables || [])
-        .filter(
-          (t) =>
-            !t.is_private &&
-            t.host_id !== 'system' &&
-            t.code !== 'ROYAL1' &&
-            t.id !== 'public-royal-table'
-        )
-        .map((t) => ({
-          id: t.id,
-          name: t.name,
-          code: t.code,
-          playerCount: t.player_count || 1,
-          phase: (t.status === 'active' ? 'betting' : 'waiting') as GamePhase,
-          timer: t.betting_duration || 20,
-        }));
-
+      // 2. Query live active rooms from socket server
       let liveRooms: PublicRoomSummary[] = [];
       if (socket && isConnected) {
         liveRooms = await new Promise<PublicRoomSummary[]>((resolve) => {
@@ -1705,36 +1825,49 @@ export default function App() {
                 r.id !== 'public-royal-table' &&
                 r.code !== 'ROYAL1' &&
                 r.name !== '👑 Royal Court Pavilion' &&
-                r.playerCount > 0
+                (r.playerCount || 0) > 0
             );
             resolve(filtered);
           });
         });
       }
 
-      // If live rooms from server exist, use them exclusively as the source of truth for real active tables
-      if (liveRooms.length > 0) {
-        setPublicRooms(liveRooms);
-        return liveRooms;
+      // 3. Query Supabase for any persistent public tables with > 0 players
+      const sbResult = await fetchRunningTablesFromSupabase();
+      const sbRooms: PublicRoomSummary[] = (sbResult?.tables || [])
+        .filter(
+          (t) =>
+            !t.is_private &&
+            t.host_id !== 'system' &&
+            t.code !== 'ROYAL1' &&
+            t.id !== 'public-royal-table' &&
+            t.status !== 'closed' &&
+            (t.player_count || 0) > 0
+        )
+        .map((t) => ({
+          id: t.id,
+          name: t.name || 'Public Table',
+          code: t.code,
+          playerCount: Math.max(1, t.player_count || 1),
+          phase: (t.status === 'active' ? 'betting' : 'waiting') as GamePhase,
+          timer: t.betting_duration || 20,
+        }));
+
+      // Merge both sources (deduped by ID) so all genuine available public tables are visible
+      const mergedMap = new Map<string, PublicRoomSummary>();
+      for (const r of sbRooms) {
+        if (r.playerCount > 0) mergedMap.set(r.id, r);
+      }
+      for (const r of liveRooms) {
+        if (r.playerCount > 0) mergedMap.set(r.id, r);
       }
 
-      // If socket had no active tables, also filter Supabase rooms to ensure no 0-player tables
-      const activeSbRooms = sbRooms.filter((r) => r.playerCount > 0);
-      setPublicRooms(activeSbRooms);
-      return activeSbRooms;
-    } catch {
-      if (socket && isConnected) {
-        socket.emit('room:get_public', (res: { rooms: PublicRoomSummary[] }) => {
-          const liveRooms = (res?.rooms || []).filter(
-            (r) =>
-              r.id !== 'public-royal-table' &&
-              r.code !== 'ROYAL1' &&
-              r.name !== '👑 Royal Court Pavilion' &&
-              r.playerCount > 0
-          );
-          setPublicRooms(liveRooms);
-        });
-      }
+      const finalRooms = Array.from(mergedMap.values());
+      setPublicRooms(finalRooms);
+      return finalRooms;
+    } catch (err) {
+      console.warn('handleRefreshPublicRooms error:', err);
+      setPublicRooms([]);
       return [];
     }
   }, [socket, isConnected]);
@@ -2358,16 +2491,24 @@ export default function App() {
 
   const handleLeaveTable = useCallback(() => {
     voiceService.leaveVoice();
-    if (socket && currentRoom) {
-      socket.emit('room:leave', { roomId: currentRoom.id, userId: user.id });
-      // Delete table from Supabase when players become 0 or if user was the only player
-      const otherPlayers = Object.keys(currentRoom.players || {}).filter((id) => id !== user.id);
-      if (otherPlayers.length === 0) {
-        deleteTableFromSupabase(currentRoom.id);
+    const tableId = currentRoom?.id || currentRoomRef.current?.id;
+    if (tableId) {
+      if (socket) {
+        socket.emit('room:leave', { roomId: tableId, userId: user.id });
+      }
+      // Check if user was the only real player
+      const otherRealPlayers = Object.keys(currentRoom?.players || {}).filter(
+        (id) => id !== user.id && !id.startsWith('patron_') && !id.startsWith('bot_')
+      );
+      if (otherRealPlayers.length === 0) {
+        deleteTableFromSupabase(tableId).catch(() => {});
+        fetch(`/api/tables/${tableId}`, { method: 'DELETE' }).catch(() => {});
+        setPublicRooms((prev) => prev.filter((r) => r.id !== tableId));
       }
     }
-    // Sweep any orphaned 0-player tables from Supabase
+    // Sweep any orphaned 0-player tables from Supabase and server
     deleteZeroPlayerTablesFromSupabase().catch(() => {});
+    fetch('/api/tables/cleanup').catch(() => {});
 
     setCurrentRoom(null);
     currentRoomRef.current = null;
@@ -2822,6 +2963,9 @@ export default function App() {
           onOpenSettings={() => setIsSettingsOpen(true)}
           onOpenAuth={() => setIsAuthModalOpen(true)}
           onOpenProfile={() => setIsProfileOpen(true)}
+          onOpenAdminPanel={() => setIsAdminPanelOpen(true)}
+          onOpenNotifications={() => setIsNotificationOpen(true)}
+          unreadNotificationCount={notifications.filter((n) => !n.read).length}
         />
       ) : (
         /* Main Mobile Screen Wrapper: Responsive adaptive viewport */
@@ -2839,6 +2983,8 @@ export default function App() {
             isFullscreen={isFullscreen}
             onToggleFullscreen={toggleFullscreen}
             onReturnToMainMenu={() => setShowExitConfirmModal(true)}
+            onOpenNotifications={() => setIsNotificationOpen(true)}
+            unreadNotificationCount={notifications.filter((n) => !n.read).length}
           />
 
           {/* 2. Main Arena, Players Deck & Mat Content Area */}
@@ -3103,6 +3249,7 @@ export default function App() {
         onOpenAuth={() => setIsAuthModalOpen(true)}
         onOpenProfile={() => setIsProfileOpen(true)}
         onUpdateUser={handleUpdateUserProfile}
+        onOpenAdminPanel={() => setIsAdminPanelOpen(true)}
       />
 
       {/* Player Profile Modal for editing avatar, name, title, email password settings and viewing stats */}
@@ -3219,6 +3366,47 @@ export default function App() {
         currentUserId={user.id}
         onKickPlayer={handleKickPlayer}
         onTransferLeadership={handleRequestTransferLeadership}
+      />
+
+      {/* Supreme Admin Panel Modal */}
+      <AdminPanelModal
+        isOpen={isAdminPanelOpen}
+        onClose={() => setIsAdminPanelOpen(false)}
+        currentUser={user}
+        onShowToast={showToast}
+        onUpdateCurrentUserCoins={(newCoins) => {
+          setUser((u) => {
+            const updated = { ...u, coins: newCoins };
+            saveLocalProfile(updated);
+            return updated;
+          });
+        }}
+        socket={socket}
+      />
+
+      {/* Notifications Modal */}
+      <NotificationModal
+        isOpen={isNotificationOpen}
+        onClose={() => setIsNotificationOpen(false)}
+        notifications={notifications}
+        onMarkAsRead={(id) => {
+          const updated = markNotificationAsRead(id);
+          setNotifications(updated);
+        }}
+        onMarkAllAsRead={() => {
+          const updated = markAllNotificationsAsRead();
+          setNotifications(updated);
+          showToast('Marked all notifications as read', 'info');
+        }}
+        onClearAll={() => {
+          const updated = clearAllNotifications();
+          setNotifications(updated);
+          showToast('Cleared all notifications', 'info');
+        }}
+        onDeleteNotification={(id) => {
+          const updated = deleteNotification(id);
+          setNotifications(updated);
+        }}
       />
     </div>
   );

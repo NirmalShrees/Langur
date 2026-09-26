@@ -84,8 +84,8 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
     setIsOpen(false);
   };
 
-  const handleToggleMute = () => {
-    voiceService.toggleMute();
+  const handleToggleMute = async () => {
+    await voiceService.toggleMute();
   };
 
   const handleToggleDeafen = () => {

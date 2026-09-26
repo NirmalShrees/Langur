@@ -1,7 +1,8 @@
-import React from 'react';
-import { X, Trophy, Crown, Award, TrendingUp } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { X, Trophy, Crown, Award, TrendingUp, Coins, Target, Zap } from 'lucide-react';
 import { LeaderboardEntry } from '../types.js';
 import { UserAvatar } from './UserAvatar.js';
+import { sound } from '../utils/audio.js';
 
 interface LeaderboardModalProps {
   isOpen: boolean;
@@ -10,12 +11,14 @@ interface LeaderboardModalProps {
   currentUserId?: string;
 }
 
+type LeaderboardTab = 'winnings' | 'winRate' | 'biggestWin';
+
 const DEFAULT_LEADERBOARD: LeaderboardEntry[] = [
-  { rank: 1, id: 'u_1', username: 'Pasang Sherpa', avatar: '🏔️', coins: 145000, totalWinnings: 420000, gamesWon: 180, biggestWin: 36000, equippedTitle: 'Himalayan King' },
-  { rank: 2, id: 'u_2', username: 'Kiran Gurung', avatar: '🦁', coins: 98500, totalWinnings: 310000, gamesWon: 142, biggestWin: 28000, equippedTitle: 'Royal High Roller' },
-  { rank: 3, id: 'u_3', username: 'Anjali Shrestha', avatar: '🦚', coins: 74200, totalWinnings: 245000, gamesWon: 110, biggestWin: 22500, equippedTitle: 'Dice Empress' },
-  { rank: 4, id: 'u_4', username: 'Dipendra KC', avatar: '👑', coins: 62000, totalWinnings: 198000, gamesWon: 95, biggestWin: 18000, equippedTitle: 'Gold Master' },
-  { rank: 5, id: 'u_5', username: 'Sunita Thapa', avatar: '🌸', coins: 45000, totalWinnings: 154000, gamesWon: 76, biggestWin: 15000, equippedTitle: 'Lucky Peafowl' },
+  { rank: 1, id: 'u_1', username: 'Pasang Sherpa', avatar: '🏔️', coins: 145000, totalWinnings: 420000, gamesWon: 180, gamesPlayed: 240, winRate: 75, biggestWin: 36000, equippedTitle: 'Himalayan King' },
+  { rank: 2, id: 'u_2', username: 'Kiran Gurung', avatar: '🦁', coins: 98500, totalWinnings: 310000, gamesWon: 142, gamesPlayed: 210, winRate: 68, biggestWin: 28000, equippedTitle: 'Royal High Roller' },
+  { rank: 3, id: 'u_3', username: 'Anjali Shrestha', avatar: '🦚', coins: 74200, totalWinnings: 245000, gamesWon: 110, gamesPlayed: 155, winRate: 71, biggestWin: 22500, equippedTitle: 'Dice Empress' },
+  { rank: 4, id: 'u_4', username: 'Dipendra KC', avatar: '👑', coins: 62000, totalWinnings: 198000, gamesWon: 95, gamesPlayed: 160, winRate: 59, biggestWin: 18000, equippedTitle: 'Gold Master' },
+  { rank: 5, id: 'u_5', username: 'Sunita Thapa', avatar: '🌸', coins: 45000, totalWinnings: 154000, gamesWon: 76, gamesPlayed: 115, winRate: 66, biggestWin: 15000, equippedTitle: 'Lucky Peafowl' },
 ];
 
 export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
@@ -24,23 +27,75 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
   leaderboard,
   currentUserId = '',
 }) => {
-  if (!isOpen) return null;
+  const [activeTab, setActiveTab] = useState<LeaderboardTab>('winnings');
 
-  const list: LeaderboardEntry[] = Array.isArray(leaderboard) && leaderboard.length > 0
+  const rawList: LeaderboardEntry[] = Array.isArray(leaderboard) && leaderboard.length > 0
     ? leaderboard
     : DEFAULT_LEADERBOARD;
 
-  const topThree = list.slice(0, 3);
+  const sortedList = useMemo(() => {
+    const cloned = [...rawList];
+    switch (activeTab) {
+      case 'winRate':
+        cloned.sort((a, b) => {
+          const rateA = a.winRate ?? ((a.gamesPlayed || 0) > 0 ? Math.round(((a.gamesWon || 0) / (a.gamesPlayed || 1)) * 100) : 0);
+          const rateB = b.winRate ?? ((b.gamesPlayed || 0) > 0 ? Math.round(((b.gamesWon || 0) / (b.gamesPlayed || 1)) * 100) : 0);
+          return rateB - rateA || (b.gamesWon || 0) - (a.gamesWon || 0);
+        });
+        break;
+      case 'biggestWin':
+        cloned.sort((a, b) => (b.biggestWin || 0) - (a.biggestWin || 0) || (b.totalWinnings || 0) - (a.totalWinnings || 0));
+        break;
+      case 'winnings':
+      default:
+        cloned.sort((a, b) => (b.totalWinnings || 0) - (a.totalWinnings || 0) || (b.coins || 0) - (a.coins || 0));
+        break;
+    }
+    return cloned.map((entry, idx) => ({
+      ...entry,
+      rank: idx + 1,
+    }));
+  }, [rawList, activeTab]);
+
+  if (!isOpen) return null;
+
+  const topThree = sortedList.slice(0, 3);
+
+  const formatStatDisplay = (entry: LeaderboardEntry) => {
+    switch (activeTab) {
+      case 'winRate': {
+        const rate = entry.winRate ?? ((entry.gamesPlayed || 0) > 0 ? Math.round(((entry.gamesWon || 0) / (entry.gamesPlayed || 1)) * 100) : 0);
+        return `${rate}% WR`;
+      }
+      case 'biggestWin':
+        return `+${(entry.biggestWin ?? 0).toLocaleString()} 💥`;
+      case 'winnings':
+      default:
+        return `+${(entry.totalWinnings ?? 0).toLocaleString()} 🪙`;
+    }
+  };
+
+  const getSubtextDisplay = (entry: LeaderboardEntry) => {
+    switch (activeTab) {
+      case 'winRate':
+        return `${entry.gamesWon || 0}/${entry.gamesPlayed || 0} rounds`;
+      case 'biggestWin':
+        return `Vault: ${(entry.coins || 0).toLocaleString()} 🪙`;
+      case 'winnings':
+      default:
+        return `${(entry.coins || 0).toLocaleString()} 🪙 in vault`;
+    }
+  };
 
   return (
     <div
       id="leaderboard-modal-overlay"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 sm:p-4 overscroll-contain animate-in fade-in duration-150 select-none"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 sm:p-4 overscroll-contain animate-in fade-in duration-150 select-none backdrop-blur-xs"
       onClick={onClose}
     >
       <div
         id="leaderboard-modal-card"
-        className="relative w-full max-w-lg bg-slate-900 border border-amber-500/40 rounded-3xl shadow-2xl p-4 sm:p-5 flex flex-col max-h-[85vh] overflow-hidden"
+        className="relative w-full max-w-lg bg-gradient-to-b from-[#0e1628] via-[#090f1d] to-[#050811] border border-amber-500/40 rounded-3xl shadow-2xl p-4 sm:p-5 flex flex-col max-h-[88vh] overflow-hidden text-slate-100"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
@@ -67,10 +122,61 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
           <button
             id="close-leaderboard-btn"
             onClick={onClose}
-            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 active:scale-95 transition-all shrink-0"
+            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 active:scale-95 transition-all shrink-0 cursor-pointer"
             title="Close"
           >
             <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Filter Ranking Tabs - 3 Rankings */}
+        <div className="grid grid-cols-3 gap-1.5 mt-3 p-1 bg-slate-950/80 rounded-2xl border border-slate-800 shrink-0 text-xs font-bold">
+          <button
+            type="button"
+            onClick={() => {
+              sound.playChipSound();
+              setActiveTab('winnings');
+            }}
+            className={`py-1.5 px-2 rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+              activeTab === 'winnings'
+                ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-black shadow-md'
+                : 'text-slate-400 hover:text-amber-200'
+            }`}
+          >
+            <Trophy className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Total Won</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              sound.playChipSound();
+              setActiveTab('winRate');
+            }}
+            className={`py-1.5 px-2 rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+              activeTab === 'winRate'
+                ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-black shadow-md'
+                : 'text-slate-400 hover:text-amber-200'
+            }`}
+          >
+            <Target className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Win Rate</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              sound.playChipSound();
+              setActiveTab('biggestWin');
+            }}
+            className={`py-1.5 px-2 rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+              activeTab === 'biggestWin'
+                ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-black shadow-md'
+                : 'text-slate-400 hover:text-amber-200'
+            }`}
+          >
+            <Zap className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Biggest Win</span>
           </button>
         </div>
 
@@ -114,8 +220,8 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
                   <span className="text-[11px] font-bold text-slate-100 truncate w-full">
                     {top.username || 'Player'}
                   </span>
-                  <span className="text-[10px] font-mono font-bold text-amber-300 mt-0.5">
-                    +{(top.totalWinnings ?? 0).toLocaleString()}
+                  <span className="text-[10.5px] font-mono font-extrabold text-amber-300 mt-0.5">
+                    {formatStatDisplay(top)}
                   </span>
                 </div>
               );
@@ -125,7 +231,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
 
         {/* Scrollable Leaderboard List */}
         <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar mt-3 space-y-1.5 pr-1">
-          {list.map((entry, index) => {
+          {sortedList.map((entry, index) => {
             const isMe = Boolean(currentUserId && entry.id === currentUserId);
             const rank = entry.rank || index + 1;
 
@@ -149,7 +255,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
                 className={`flex items-center justify-between gap-2 p-2 sm:p-2.5 rounded-2xl border transition-colors ${
                   isMe
                     ? 'bg-amber-500/15 border-amber-500/60 ring-1 ring-amber-500/30'
-                    : 'bg-slate-850/70 border-slate-800/80 hover:border-slate-700'
+                    : 'bg-slate-950/70 border-slate-800/80 hover:border-slate-700'
                 }`}
               >
                 {/* Left: Rank & Player Profile */}
@@ -160,7 +266,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
                     {rankContent}
                   </div>
 
-                  <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 overflow-hidden bg-slate-800 border border-slate-750">
+                  <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 overflow-hidden bg-slate-800 border border-slate-700">
                     <UserAvatar avatar={entry.avatar} name={entry.username} size="sm" className="w-full h-full rounded-none" />
                   </div>
 
@@ -183,20 +289,18 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
                           <span className="truncate">{entry.equippedTitle}</span>
                         </span>
                       )}
-                      {(entry.gamesWon ?? 0) > 0 && (
-                        <span className="text-slate-500 font-mono">
-                          • {entry.gamesWon} wins
-                        </span>
-                      )}
+                      <span className="text-slate-500 font-mono">
+                        {getSubtextDisplay(entry)}
+                      </span>
                     </div>
                   </div>
                 </div>
 
-                {/* Right: Winnings & Fortune */}
+                {/* Right: Selected Metric Display */}
                 <div className="text-right shrink-0 pl-1">
                   <div className="flex items-center justify-end gap-1 text-xs font-mono font-black text-emerald-400">
                     <TrendingUp className="w-3 h-3 text-emerald-500 shrink-0" />
-                    <span>+{(entry.totalWinnings ?? 0).toLocaleString()}</span>
+                    <span>{formatStatDisplay(entry)}</span>
                   </div>
                   <div className="flex items-center justify-end gap-1 text-[10.5px] font-mono text-amber-300/90 mt-0.5">
                     <span>{(entry.coins ?? 0).toLocaleString()}</span>
@@ -217,7 +321,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
 
           <button
             onClick={onClose}
-            className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs shadow active:scale-95 transition-all"
+            className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs shadow active:scale-95 transition-all cursor-pointer"
           >
             Close
           </button>

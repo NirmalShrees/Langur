@@ -10,6 +10,7 @@ import {
   Sparkles,
   BookOpen,
   ChevronRight,
+  Crown,
 } from 'lucide-react';
 import { sound } from '../utils/audio.js';
 import { SYMBOL_KEYS, LANGUR_BURJA_SYMBOLS, UserProfile, SymbolType } from '../types.js';
@@ -36,6 +37,7 @@ interface SettingsModalProps {
   onOpenAuth?: () => void;
   onOpenProfile?: () => void;
   onUpdateUser?: (updated: UserProfile) => void;
+  onOpenAdminPanel?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -46,6 +48,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   tableTheme,
   onChangeTableTheme,
   isInGame = false,
+  user,
+  onOpenAdminPanel,
 }) => {
   const [isMuted, setIsMuted] = useState(sound.getIsMuted());
   const [activeTab, setActiveTab] = useState<'settings' | 'rules'>('settings');
@@ -232,6 +236,38 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </button>
                 </div>
               </div>
+
+              {/* Supreme Admin Panel Shortcut (Only for Admins) */}
+              {Boolean(
+                user?.isAdmin ||
+                user?.is_admin ||
+                (user?.email && user.email.toLowerCase().trim() === 'lamrinshrees@gmail.com')
+              ) && onOpenAdminPanel && (
+                <button
+                  id="settings-admin-panel-btn"
+                  onClick={() => {
+                    onClose();
+                    onOpenAdminPanel();
+                  }}
+                  className="w-full p-3 rounded-2xl bg-gradient-to-r from-purple-950/80 via-slate-900 to-amber-950/80 border border-purple-500/40 hover:border-purple-400 text-amber-200 flex items-center justify-between active:scale-98 transition-all group shadow-md cursor-pointer"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-purple-500/20 flex items-center justify-center border border-purple-500/30 text-amber-300">
+                      <Crown className="w-4 h-4 text-amber-300 fill-amber-300" />
+                    </div>
+                    <div className="text-left">
+                      <div className="font-bold text-xs text-amber-200 group-hover:text-amber-100 flex items-center gap-1.5">
+                        <span>Supreme Admin Suite</span>
+                        <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 border border-purple-400/40">MASTER</span>
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        Player coins, real-time tables & broadcasts
+                      </div>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-amber-400/70 group-hover:translate-x-0.5 transition-transform" />
+                </button>
+              )}
 
               {/* Exit to Main Menu (only visible when in game) */}
               {isInGame && (

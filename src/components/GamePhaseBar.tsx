@@ -64,8 +64,8 @@ export const GamePhaseBar: React.FC<GamePhaseBarProps> = ({
             <div className="flex items-center gap-2 bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-800">
               <span className="text-xs text-slate-400 font-medium">Time:</span>
               <span
-                className={`font-mono font-black text-base sm:text-lg ${
-                  timer <= 5 && phase === 'betting' ? 'text-rose-400 animate-ping' : 'text-amber-300'
+                className={`font-mono font-black text-base sm:text-lg tabular-nums ${
+                  timer <= 5 && phase === 'betting' ? 'text-rose-400 font-black' : 'text-amber-300'
                 }`}
               >
                 {timer}s

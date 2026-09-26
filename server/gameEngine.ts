@@ -36,23 +36,81 @@ export class GameEngine {
       console.warn('[GameEngine] Background hydration notice:', err);
     });
 
-    // Sweep and purge residual 0-player tables from Supabase on launch and every 60 seconds
-    this.purgeZeroPlayerTables();
+    // Server-Authoritative Cleanup & Periodic Background Garbage Collector:
+    // Sweeps on startup and executes every 5 minutes (300,000 ms)
+    this.runServerAuthoritativeGarbageCollector().catch(() => {});
     setInterval(() => {
-      this.purgeZeroPlayerTables();
-    }, 60 * 1000);
+      this.runServerAuthoritativeGarbageCollector().catch((err) => {
+        console.warn('[Server GC] 5-minute background sweep notice:', err);
+      });
+    }, 5 * 60 * 1000);
+  }
+
+  /**
+   * Server-Authoritative Cleanup & Periodic Background Garbage Collector:
+   * 1. Inspects active memory rooms and destroys any empty or abandoned rooms with 0 real human players.
+   * 2. Clears associated intervals, cleanup timers, and disconnect grace timers.
+   * 3. Purges residual, closed, and orphaned 0-player table records from Supabase.
+   * 4. Returns comprehensive metrics of the sweep.
+   */
+  public async runServerAuthoritativeGarbageCollector(): Promise<{
+    purgedMemoryRooms: number;
+    purgedSupabaseTables: number;
+    activeRoomsRemaining: number;
+    timestamp: string;
+  }> {
+    let purgedMemoryCount = 0;
+    try {
+      const activeIdsWithRealPlayers: string[] = [];
+      const now = Date.now();
+
+      for (const [id, r] of this.rooms.entries()) {
+        const realPlayers = Object.values(r.players || {}).filter(
+          (p) => !p.id.startsWith('patron_') && !p.id.startsWith('bot_') && !p.isDisconnected
+        );
+
+        // Check if room has 0 active human players or is abandoned (>30 min inactive)
+        const isIdleOrAbandoned =
+          realPlayers.length === 0 ||
+          (r.tableStats && now - (r.lastResult?.timestamp || 0) > 30 * 60 * 1000 && realPlayers.length === 0);
+
+        if (isIdleOrAbandoned) {
+          this.destroyRoom(id);
+          purgedMemoryCount++;
+        } else {
+          activeIdsWithRealPlayers.push(id);
+        }
+      }
+
+      // Purge 0-player and orphaned tables in Supabase
+      const purgedSupabase = await deleteZeroPlayerTablesFromSupabase(activeIdsWithRealPlayers);
+
+      console.log(
+        `[Server GC] 5-Minute Garbage Collector executed. Cleaned up ${purgedMemoryCount} memory rooms, ${purgedSupabase} Supabase rows. Active rooms: ${activeIdsWithRealPlayers.length}.`
+      );
+
+      return {
+        purgedMemoryRooms: purgedMemoryCount,
+        purgedSupabaseTables: purgedSupabase,
+        activeRoomsRemaining: activeIdsWithRealPlayers.length,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (err) {
+      console.warn('[Server GC] Error running garbage collector:', err);
+      return {
+        purgedMemoryRooms: purgedMemoryCount,
+        purgedSupabaseTables: 0,
+        activeRoomsRemaining: this.rooms.size,
+        timestamp: new Date().toISOString(),
+      };
+    }
   }
 
   /**
    * Purges residual 0-player tables and redundant entries from Supabase.
    */
   public async purgeZeroPlayerTables(): Promise<void> {
-    try {
-      const activeIds = Array.from(this.rooms.keys());
-      await deleteZeroPlayerTablesFromSupabase(activeIds);
-    } catch (err) {
-      console.warn('[GameEngine] purgeZeroPlayerTables notice:', err);
-    }
+    await this.runServerAuthoritativeGarbageCollector();
   }
 
   /**
@@ -153,6 +211,7 @@ export class GameEngine {
       }
     }
 
+    const now = Date.now();
     const room: RoomState = {
       id: record.id,
       code: record.code.toUpperCase(),
@@ -162,7 +221,8 @@ export class GameEngine {
       settings,
       phase: record.status === 'waiting' ? 'waiting' : 'betting',
       timer: settings.bettingDuration,
-      phaseEndsAt: record.status === 'waiting' ? undefined : Date.now() + (settings.bettingDuration * 1000),
+      phaseStartedAt: record.status === 'waiting' ? undefined : now,
+      phaseEndsAt: record.status === 'waiting' ? undefined : now + (settings.bettingDuration * 1000),
       dice: ['burja', 'jhanda', 'burja', 'itta', 'paan', 'chidi'],
       roundNumber: (record.table_stats?.totalRounds || 0) + 1,
       players: restoredPlayers,
@@ -229,14 +289,16 @@ export class GameEngine {
   public getPublicRooms(): { id: string; name: string; code: string; playerCount: number; phase: string; timer: number }[] {
     const list: { id: string; name: string; code: string; playerCount: number; phase: string; timer: number }[] = [];
     for (const r of this.rooms.values()) {
-      // Only show actual tables with active players connected
-      const count = Object.keys(r.players || {}).length;
-      if (!r.isPrivate && count > 0) {
+      // Only show actual tables with real active human players connected
+      const realPlayers = Object.values(r.players || {}).filter(
+        (p) => !p.id.startsWith('patron_') && !p.id.startsWith('bot_')
+      );
+      if (!r.isPrivate && realPlayers.length > 0) {
         list.push({
           id: r.id,
           name: r.name,
           code: r.code,
-          playerCount: count,
+          playerCount: realPlayers.length,
           phase: r.phase,
           timer: r.timer,
         });
@@ -289,6 +351,7 @@ export class GameEngine {
       payoutMultiplierType: customSettings?.payoutMultiplierType || 'traditional',
     };
 
+    const now = Date.now();
     const room: RoomState = {
       id: roomId,
       code,
@@ -298,7 +361,8 @@ export class GameEngine {
       settings,
       phase: 'waiting', // Wait until host clicks Enter Table as Host
       timer: settings.bettingDuration,
-      phaseEndsAt: Date.now() + (settings.bettingDuration * 1000),
+      phaseStartedAt: undefined,
+      phaseEndsAt: now + (settings.bettingDuration * 1000),
       dice: ['burja', 'jhanda', 'itta', 'paan', 'hukum', 'chidi'],
       roundNumber: 1,
       players: {},
@@ -439,8 +503,8 @@ export class GameEngine {
   }
 
   /**
-   * Handle unexpected socket disconnect with 45s grace period for network hiccups / packet drops.
-   * The game continues running completely unaffected!
+   * When player is offline or disconnected, immediately remove them from the table.
+   * If there are no players left or if only 1 player was at the table, prune and delete the table immediately.
    */
   public handlePlayerDisconnect(roomId: string, userId: string): void {
     const room = this.rooms.get(roomId);
@@ -449,54 +513,15 @@ export class GameEngine {
     const player = room.players[userId];
     if (!player) return;
 
-    player.isDisconnected = true;
-    player.disconnectedAt = Date.now();
-
-    // Broadcast disconnected status to the room
-    this.io.to(`room:${roomId}`).emit('room:player_status_changed', {
-      userId,
-      isDisconnected: true,
-      roomState: room,
-    });
-
-    // If in payout phase, re-evaluate connected players' votes so disconnected players don't block next round
-    if (room.phase === 'payout') {
-      const connectedPlayerIds = Object.keys(room.players).filter(
-        (id) => !room.players[id].isDisconnected
-      );
-      const allReady =
-        connectedPlayerIds.length > 0 &&
-        connectedPlayerIds.every((id) => (room.nextRoundVotes || []).includes(id));
-      this.io.to(`room:${roomId}`).emit('game:next_round_votes', {
-        votes: room.nextRoundVotes || [],
-        totalPlayers: connectedPlayerIds.length,
-        allReady,
-        voterId: userId,
-      });
-      if (allReady) {
-        this.startNewRound(room);
-      }
-    }
-
     const timerKey = `${roomId}:${userId}`;
     const existing = this.disconnectTimers.get(timerKey);
-    if (existing) clearTimeout(existing);
-
-    // If the disconnecting player is the host and the room is waiting to start,
-    // transfer leadership after 15s so lobby is not blocked.
-    // In active game phases, allow a 45s grace period without disturbing ongoing rolls.
-    const graceTimeout = room.phase === 'waiting' ? 15000 : 45000;
-
-    const timeout = setTimeout(() => {
+    if (existing) {
+      clearTimeout(existing);
       this.disconnectTimers.delete(timerKey);
-      const r = this.rooms.get(roomId);
-      if (r && r.players[userId]?.isDisconnected) {
-        // Player never reconnected within grace period - perform graceful removal
-        this.executePlayerRemoval(roomId, userId, false);
-      }
-    }, graceTimeout);
+    }
 
-    this.disconnectTimers.set(timerKey, timeout);
+    // Immediately remove offline player from table and prune/delete table if 0 players remain
+    this.executePlayerRemoval(roomId, userId, false);
   }
 
   /**
@@ -539,7 +564,17 @@ export class GameEngine {
     room.nextRoundVotes = (room.nextRoundVotes || []).filter((id) => id !== userId);
 
     const remainingPlayers = Object.values(room.players);
-    const remainingPlayerIds = Object.keys(room.players);
+    const remainingRealPlayers = remainingPlayers.filter(
+      (p) => !p.id.startsWith('patron_') && !p.id.startsWith('bot_')
+    );
+    const remainingPlayerIds = remainingRealPlayers.map((p) => p.id);
+
+    // If no real players remain at the table (0 real players), prune and destroy table immediately!
+    if (remainingRealPlayers.length === 0) {
+      this.destroyRoom(roomId);
+      this.io.to(`room:${roomId}`).emit('room:player_left', { userId, roomState: room, tableClosed: true });
+      return;
+    }
 
     // If in payout phase, check if remaining players have all voted to advance
     if (room.phase === 'payout' && remainingPlayerIds.length > 0) {
@@ -712,9 +747,11 @@ export class GameEngine {
       return { success: true, message: 'Game already active', room };
     }
 
+    const now = Date.now();
     room.phase = 'betting';
     room.timer = room.settings.bettingDuration;
-    room.phaseEndsAt = Date.now() + (room.settings.bettingDuration * 1000);
+    room.phaseStartedAt = now;
+    room.phaseEndsAt = now + (room.settings.bettingDuration * 1000);
     room.nextRoundVotes = [];
 
     this.broadcastSystemChat(roomId, `🎲 The table host has officially entered and opened betting! Place your wagers.`);
@@ -930,8 +967,18 @@ export class GameEngine {
         return;
       }
 
+      // If room has 0 players, prune and destroy table immediately
+      if (!room.players || Object.keys(room.players).length === 0) {
+        this.destroyRoom(roomId);
+        return;
+      }
+
       if (room.phase === 'betting') {
-        const remaining = Math.max(0, Math.ceil(((room.phaseEndsAt || Date.now()) - Date.now()) / 1000));
+        const now = Date.now();
+        const duration = room.settings.bettingDuration || 18;
+        const phaseStart = room.phaseStartedAt || (room.phaseEndsAt ? room.phaseEndsAt - duration * 1000 : now);
+        const elapsedSec = Math.floor((now - phaseStart) / 1000);
+        const remaining = Math.max(0, duration - elapsedSec);
         room.timer = remaining;
         this.io.to(`room:${roomId}`).emit('game:timer_tick', {
           phase: 'betting',
@@ -1223,10 +1270,12 @@ export class GameEngine {
       return;
     }
 
+    const now = Date.now();
     room.roundNumber += 1;
     room.phase = 'betting';
     room.timer = room.settings.bettingDuration;
-    room.phaseEndsAt = Date.now() + (room.settings.bettingDuration * 1000);
+    room.phaseStartedAt = now;
+    room.phaseEndsAt = now + (room.settings.bettingDuration * 1000);
     room.nextRoundVotes = []; // Cleared for the new round
 
     // Reset table bets

@@ -187,13 +187,6 @@ export const BettingBoard: React.FC<BettingBoardProps> = ({
                     {isBettingOpen ? 'Click to place bet' : 'No bets'}
                   </span>
                 )}
-
-                {/* Table Pool on this symbol */}
-                {totalTableBet > 0 && (
-                  <div className="text-[11px] font-mono font-semibold text-amber-300/80 bg-slate-900/90 px-2 py-0.5 rounded-lg border border-slate-800">
-                    Pool: {totalTableBet.toLocaleString()} 🪙
-                  </div>
-                )}
               </div>
 
               {/* Bottom description / potential return estimate */}

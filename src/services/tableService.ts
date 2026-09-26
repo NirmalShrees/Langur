@@ -315,22 +315,26 @@ export async function closeTableInSupabase(roomId: string): Promise<{ success: b
 }
 
 /**
- * Permanently deletes a game table from Supabase game_tables when players count becomes 0.
+ * Permanently deletes a game table from Supabase game_tables.
+ * Also tries deleting by code or sending a fallback delete request to the server.
  */
 export async function deleteTableFromSupabase(roomId: string): Promise<{ success: boolean; error?: string }> {
-  if (!isSupabaseConfigured() || !supabase) {
-    return { success: true };
-  }
-
   try {
-    const { error } = await supabase.from('game_tables').delete().eq('id', roomId);
-    if (error) {
-      console.warn('[TableService] deleteTableFromSupabase notice:', error.message);
-      // Fallback: mark as closed if delete policy restricts row deletion
-      await updateTableInSupabase(roomId, { status: 'closed', playerCount: 0 });
-      return { success: false, error: error.message };
+    // 1. If Supabase client configured, delete directly from database
+    if (isSupabaseConfigured() && supabase) {
+      await supabase.from('game_tables').update({ status: 'closed', player_count: 0, players: [], player_stats: [] }).eq('id', roomId);
+      await supabase.from('game_tables').delete().eq('id', roomId);
+      await supabase.from('game_tables').delete().eq('code', roomId);
     }
-    console.log(`[TableService] Table ${roomId} deleted as players count reached 0.`);
+
+    // 2. Also notify backend API to delete from server memory and Supabase with service role
+    fetch(`/api/admin/tables/${roomId}/action`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'terminate' }),
+    }).catch(() => {});
+
+    console.log(`[TableService] Table ${roomId} permanently deleted.`);
     return { success: true };
   } catch (err: any) {
     console.warn('[TableService] deleteTableFromSupabase exception:', err);
@@ -340,39 +344,92 @@ export async function deleteTableFromSupabase(roomId: string): Promise<{ success
 
 /**
  * Sweeps and purges all tables with 0 players or closed status from Supabase.
+ * Executes both hard DELETE and fallback status='closed' update for maximum compatibility.
  */
 export async function deleteZeroPlayerTablesFromSupabase(): Promise<number> {
-  if (!isSupabaseConfigured() || !supabase) return 0;
-  try {
-    let purged = 0;
-    const { data, error } = await supabase
-      .from('game_tables')
-      .delete()
-      .or('player_count.lte.0,status.eq.closed,player_count.is.null')
-      .select('id');
+  let purged = 0;
 
-    if (!error && data) {
-      purged += data.length;
+  // 1. Direct Supabase Client Query
+  if (isSupabaseConfigured() && supabase) {
+    try {
+      const { data: allTables } = await supabase
+        .from('game_tables')
+        .select('id, code, player_count, status, players, player_stats');
+
+      if (allTables && allTables.length > 0) {
+        const redundantIds = allTables
+          .filter((t) => {
+            if (t.id === 'public-royal-table') return true;
+            if (t.status === 'closed') return true;
+            if (t.player_count === null || t.player_count === undefined || Number(t.player_count) <= 0) return true;
+            
+            const statsArr = Array.isArray(t.player_stats) ? t.player_stats : [];
+            const playersArr = Array.isArray(t.players) ? t.players : [];
+            const combinedPlayers = statsArr.length > 0 ? statsArr : playersArr;
+            
+            if (combinedPlayers.length === 0) return true;
+
+            const realPlayers = combinedPlayers.filter((p: any) => {
+              const pId = String(p?.id || '');
+              return !pId.startsWith('patron_') && !pId.startsWith('bot_') && pId !== '';
+            });
+            if (realPlayers.length === 0) return true;
+
+            return false;
+          })
+          .map((t) => t.id);
+
+        if (redundantIds.length > 0) {
+          await supabase
+            .from('game_tables')
+            .update({ status: 'closed', player_count: 0, players: [], player_stats: [] })
+            .in('id', redundantIds);
+
+          const { data: deletedRows } = await supabase
+            .from('game_tables')
+            .delete()
+            .in('id', redundantIds)
+            .select('id');
+
+          if (deletedRows) {
+            purged += deletedRows.length;
+          } else {
+            purged += redundantIds.length;
+          }
+        }
+      }
+
+      // Direct deletion fallback
+      const { data } = await supabase
+        .from('game_tables')
+        .delete()
+        .or('player_count.lte.0,status.eq.closed,player_count.is.null')
+        .select('id');
+
+      if (data) {
+        purged += data.length;
+      }
+
+      // Remove legacy royal table
+      await supabase.from('game_tables').delete().eq('id', 'public-royal-table');
+    } catch (err) {
+      console.warn('[TableService] deleteZeroPlayerTablesFromSupabase client notice:', err);
     }
-
-    const { data: royalData } = await supabase
-      .from('game_tables')
-      .delete()
-      .eq('id', 'public-royal-table')
-      .select('id');
-
-    if (royalData) {
-      purged += royalData.length;
-    }
-
-    if (purged > 0) {
-      console.log(`[TableService] Purged ${purged} zero-player/redundant tables from Supabase.`);
-    }
-    return purged;
-  } catch (err) {
-    console.warn('[TableService] deleteZeroPlayerTablesFromSupabase notice:', err);
   }
-  return 0;
+
+  // 2. Also execute server-side cleanup
+  try {
+    const res = await fetch('/api/tables/cleanup', { method: 'POST' });
+    const json = await res.json();
+    if (json?.gcResult?.purgedSupabaseTables) {
+      purged = Math.max(purged, json.gcResult.purgedSupabaseTables);
+    }
+  } catch {}
+
+  if (purged > 0) {
+    console.log(`[TableService] Purged ${purged} zero-player/redundant tables from Supabase.`);
+  }
+  return purged;
 }
 
 /**
@@ -521,7 +578,7 @@ export async function findTableByIdInSupabase(roomId: string): Promise<{
 }
 
 /**
- * Retrieves all currently open public game tables from Supabase (waiting or active).
+ * Retrieves all currently open public game tables from Supabase (waiting or active) with active players.
  */
 export async function fetchRunningTablesFromSupabase(): Promise<{
   success: boolean;
@@ -536,16 +593,30 @@ export async function fetchRunningTablesFromSupabase(): Promise<{
     const { data, error } = await supabase
       .from('game_tables')
       .select('*')
-      .in('status', ['waiting', 'active'])
+      .eq('is_private', false)
+      .neq('status', 'closed')
+      .gt('player_count', 0)
       .order('updated_at', { ascending: false })
-      .limit(20);
+      .limit(50);
 
     if (error) {
+      console.warn('[TableService] fetchRunningTablesFromSupabase error:', error.message);
       return { success: false, tables: [], error: error.message };
     }
 
-    return { success: true, tables: (data as GameTableRecord[]) || [] };
+    const publicTables = ((data as GameTableRecord[]) || []).filter(
+      (t) =>
+        !t.is_private &&
+        t.status !== 'closed' &&
+        (t.player_count || 0) > 0 &&
+        t.id !== 'public-royal-table' &&
+        t.code !== 'ROYAL1' &&
+        t.host_id !== 'system'
+    );
+
+    return { success: true, tables: publicTables };
   } catch (err: any) {
+    console.warn('[TableService] fetchRunningTablesFromSupabase exception:', err);
     return { success: false, tables: [], error: err?.message };
   }
 }

@@ -44,7 +44,7 @@ class VoiceService {
   private currentUser: { id: string; username: string; avatar: string } | null = null;
 
   private localStream: MediaStream | null = null;
-  private audioContext: AudioContext | null = null;
+  public audioContext: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private micSource: MediaStreamAudioSourceNode | null = null;
   private animationFrameId: number | null = null;
@@ -78,10 +78,11 @@ class VoiceService {
   // Web Audio fallback streamer
   private mediaRecorder: MediaRecorder | null = null;
 
+  // Sound is ON by default (isDeafened: false), Mic is OFF by default (isMuted: true)
   private state: VoiceState = {
     isConnected: false,
     isConnecting: false,
-    isMuted: false,
+    isMuted: true,
     isDeafened: false,
     isSpeaking: false,
     localVolumeLevel: 0,
@@ -127,7 +128,7 @@ class VoiceService {
   private setupSocketListeners() {
     if (!this.socket) return;
 
-    this.socket.on('voice:user_joined', async (data: { socketId: string; userId: string; username: string; avatar: string }) => {
+    this.socket.on('voice:user_joined', async (data: { socketId: string; userId: string; username: string; avatar: string; isMuted?: boolean; isDeafened?: boolean }) => {
       if (!data?.userId || data.userId === this.currentUser?.id) return;
       this.socketToUser.set(data.socketId, data.userId);
       this.userToSocket.set(data.userId, data.socketId);
@@ -138,15 +139,15 @@ class VoiceService {
         username: data.username || 'Player',
         avatar: data.avatar || '🎲',
         isSpeaking: false,
-        isMuted: false,
-        isDeafened: false,
+        isMuted: data.isMuted !== undefined ? data.isMuted : true,
+        isDeafened: data.isDeafened !== undefined ? data.isDeafened : false,
         volume: 1.0,
         volumeLevel: 0,
       };
       this.notify();
 
-      if (this.state.isConnected && this.localStream) {
-        // Initiate WebRTC offer as the existing peer
+      if (this.state.isConnected) {
+        // As an existing connected peer, initiate WebRTC offer to the newly joined peer
         await this.createPeerConnection(data.socketId, data.userId, true);
       }
     });
@@ -258,7 +259,7 @@ class VoiceService {
 
   public async loadInputDevices(): Promise<MediaDeviceInfo[]> {
     try {
-      if (!navigator.mediaDevices?.enumerateDevices) return [];
+      if (typeof navigator === 'undefined' || !navigator.mediaDevices?.enumerateDevices) return [];
       const devices = await navigator.mediaDevices.enumerateDevices();
       const audioInputs = devices.filter((d) => d.kind === 'audioinput');
       this.state.inputDevices = audioInputs;
@@ -272,8 +273,30 @@ class VoiceService {
     }
   }
 
+  public ensureAudioContext() {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx && (!this.audioContext || this.audioContext.state === 'closed')) {
+        this.audioContext = new AudioCtx();
+      }
+      if (this.audioContext && this.audioContext.state === 'suspended') {
+        this.audioContext.resume().catch(() => {});
+      }
+    } catch {}
+  }
+
+  public resumeAllAudio() {
+    this.ensureAudioContext();
+    this.audioElements.forEach((el) => {
+      el.muted = this.state.isDeafened;
+      el.play().catch(() => {});
+    });
+  }
+
   /**
-   * Connects to the table's voice channel
+   * Connects to the table's voice channel.
+   * By default, audio listening is ON immediately, and mic is MUTED by default.
+   * Joining voice never blocks or throws if microphone permissions are not yet given.
    */
   public async joinVoice(roomId: string, user: { id: string; username: string; avatar: string }): Promise<boolean> {
     if (this.state.isConnected && this.roomId === roomId) return true;
@@ -281,73 +304,72 @@ class VoiceService {
     this.roomId = roomId;
     this.currentUser = user;
     this.state.isConnecting = true;
+    this.state.isMuted = true; // Mic is OFF by default
+    this.state.isDeafened = false; // Speaker/Sound is ON by default (hearable)
     this.state.error = null;
     this.notify();
 
-    try {
-      // 1. Get microphone access
-      await this.initMicrophone();
+    this.ensureAudioContext();
+    this.resumeAllAudio();
+    this.loadInputDevices().catch(() => {});
 
-      // 2. Load available devices
-      await this.loadInputDevices();
-
-      // 3. Join voice room on socket server
-      if (this.socket && this.socket.connected) {
-        this.socket.emit(
-          'voice:join',
-          { roomId, user },
-          async (res: { success: boolean; peers?: any[]; peerSocketIds?: string[] }) => {
-            if (res?.success) {
-              if (res.peers && Array.isArray(res.peers)) {
-                for (const p of res.peers) {
-                  if (p.userId && p.userId !== user.id) {
-                    this.socketToUser.set(p.socketId, p.userId);
-                    this.userToSocket.set(p.userId, p.socketId);
-                    this.state.peers[p.userId] = {
-                      socketId: p.socketId,
-                      userId: p.userId,
-                      username: p.username || 'Player',
-                      avatar: p.avatar || '🎲',
-                      isSpeaking: Boolean(p.isSpeaking),
-                      isMuted: Boolean(p.isMuted),
-                      isDeafened: Boolean(p.isDeafened),
-                      volume: 1.0,
-                      volumeLevel: p.isSpeaking ? 50 : 0,
-                    };
-                    await this.createPeerConnection(p.socketId, p.userId, false);
-                  }
+    // Join voice room on socket server immediately
+    if (this.socket && this.socket.connected) {
+      this.socket.emit(
+        'voice:join',
+        {
+          roomId,
+          user,
+          isMuted: this.state.isMuted,
+          isDeafened: this.state.isDeafened,
+        },
+        async (res: { success: boolean; peers?: any[]; peerSocketIds?: string[] }) => {
+          if (res?.success) {
+            if (res.peers && Array.isArray(res.peers)) {
+              for (const p of res.peers) {
+                if (p.userId && p.userId !== user.id) {
+                  this.socketToUser.set(p.socketId, p.userId);
+                  this.userToSocket.set(p.userId, p.socketId);
+                  this.state.peers[p.userId] = {
+                    socketId: p.socketId,
+                    userId: p.userId,
+                    username: p.username || 'Player',
+                    avatar: p.avatar || '🎲',
+                    isSpeaking: Boolean(p.isSpeaking),
+                    isMuted: p.isMuted !== undefined ? Boolean(p.isMuted) : true,
+                    isDeafened: p.isDeafened !== undefined ? Boolean(p.isDeafened) : false,
+                    volume: 1.0,
+                    volumeLevel: p.isSpeaking ? 50 : 0,
+                  };
+                  // We initiate WebRTC offer to existing peers so connection is established right away
+                  await this.createPeerConnection(p.socketId, p.userId, true);
                 }
-                this.notify();
-              } else if (res.peerSocketIds) {
-                for (const peerSid of res.peerSocketIds) {
-                  await this.createPeerConnection(peerSid, '', false);
-                }
+              }
+              this.notify();
+            } else if (res.peerSocketIds) {
+              for (const peerSid of res.peerSocketIds) {
+                await this.createPeerConnection(peerSid, '', true);
               }
             }
           }
-        );
-      }
-
-      this.state.isConnected = true;
-      this.state.isConnecting = false;
-      this.notify();
-
-      // Start fallback chunk streamer
-      this.startFallbackAudioStream();
-
-      return true;
-    } catch (err: any) {
-      console.warn('[VoiceService] Failed to join voice:', err);
-      this.state.isConnected = false;
-      this.state.isConnecting = false;
-      this.state.error = err?.message || 'Could not access microphone';
-      this.notify();
-      return false;
+        }
+      );
     }
+
+    this.state.isConnected = true;
+    this.state.isConnecting = false;
+    this.notify();
+
+    // If local stream was previously active and unmuted, re-attach
+    if (!this.state.isMuted && this.localStream) {
+      this.startFallbackAudioStream();
+    }
+
+    return true;
   }
 
   /**
-   * Leaves the table voice channel and releases microphone
+   * Leaves the table voice channel and releases resources
    */
   public leaveVoice() {
     if (this.socket && this.roomId && this.currentUser) {
@@ -358,26 +380,11 @@ class VoiceService {
     this.stopVAD();
 
     if (this.localStream) {
-      this.localStream.getTracks().forEach((t) => t.stop());
+      this.localStream.getTracks().forEach((track) => track.stop());
       this.localStream = null;
     }
 
-    // Clean up remote analyzers
-    this.remoteAnalysers.forEach(({ source }) => {
-      try {
-        source.disconnect();
-      } catch {}
-    });
-    this.remoteAnalysers.clear();
-
-    if (this.audioContext && this.audioContext.state !== 'closed') {
-      try {
-        this.audioContext.close();
-      } catch {}
-      this.audioContext = null;
-    }
-
-    // Close peer connections
+    // Close all peer connections
     this.peerConnections.forEach((pc) => {
       try {
         pc.close();
@@ -385,28 +392,33 @@ class VoiceService {
     });
     this.peerConnections.clear();
 
-    // Remove audio elements
-    this.audioElements.forEach((el) => {
-      try {
-        el.pause();
-        el.srcObject = null;
-        el.remove();
-      } catch {}
+    // Clean up audio elements
+    this.audioElements.forEach((audio) => {
+      audio.pause();
+      audio.srcObject = null;
+      audio.remove();
     });
     this.audioElements.clear();
 
-    this.fallbackSpeakingTimers.forEach((timer) => clearTimeout(timer));
-    this.fallbackSpeakingTimers.clear();
+    // Clean up remote analysers
+    this.remoteAnalysers.forEach((entry) => {
+      try {
+        entry.source.disconnect();
+      } catch {}
+    });
+    this.remoteAnalysers.clear();
 
     this.socketToUser.clear();
     this.userToSocket.clear();
+    this.fallbackSpeakingTimers.forEach((t) => clearTimeout(t));
+    this.fallbackSpeakingTimers.clear();
 
-    this.roomId = null;
     this.state.isConnected = false;
     this.state.isConnecting = false;
     this.state.isSpeaking = false;
     this.state.localVolumeLevel = 0;
     this.state.peers = {};
+    this.state.error = null;
     this.lastSpeakingState = false;
     this.localConsecutiveSpeechFrames = 0;
     this.localConsecutiveSilenceFrames = 0;
@@ -414,52 +426,68 @@ class VoiceService {
   }
 
   /**
-   * Initializes local microphone stream and VAD analyzer
+   * Initializes local microphone stream and VAD analyzer (called when user unmutes)
    */
-  private async initMicrophone() {
-    const constraints: MediaStreamConstraints = {
-      audio: {
-        deviceId: this.state.selectedDeviceId ? { exact: this.state.selectedDeviceId } : undefined,
-        echoCancellation: this.state.echoCancellation,
-        noiseSuppression: this.state.noiseSuppression,
-        autoGainControl: true,
-      },
-      video: false,
-    };
+  public async initMicrophone(): Promise<boolean> {
+    try {
+      if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+        return false;
+      }
 
-    const stream = await navigator.mediaDevices.getUserMedia(constraints);
-    this.localStream = stream;
+      const constraints: MediaStreamConstraints = {
+        audio: {
+          deviceId: this.state.selectedDeviceId ? { exact: this.state.selectedDeviceId } : undefined,
+          echoCancellation: this.state.echoCancellation,
+          noiseSuppression: this.state.noiseSuppression,
+          autoGainControl: true,
+        },
+        video: false,
+      };
 
-    // Apply mute state
-    this.localStream.getAudioTracks().forEach((t) => {
-      t.enabled = !this.state.isMuted;
-    });
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      this.localStream = stream;
 
-    // Start Voice Activity Detection
-    this.startVAD(stream);
+      // Apply current mute state to audio tracks
+      this.localStream.getAudioTracks().forEach((t) => {
+        t.enabled = !this.state.isMuted;
+      });
+
+      // Update tracks on all active peer connections
+      const audioTrack = stream.getAudioTracks()[0];
+      if (audioTrack) {
+        this.peerConnections.forEach((pc) => {
+          const senders = pc.getSenders();
+          const audioSender = senders.find((s) => s.track && s.track.kind === 'audio');
+          if (audioSender) {
+            audioSender.replaceTrack(audioTrack).catch(() => {});
+          } else {
+            try {
+              pc.addTrack(audioTrack, stream);
+            } catch (e) {}
+          }
+        });
+      }
+
+      // Start Voice Activity Detection
+      this.startVAD(stream);
+      return true;
+    } catch (err: any) {
+      console.warn('[VoiceService] Microphone access note:', err?.message || err);
+      return false;
+    }
   }
 
   /**
    * Highly efficient & robust Voice Activity Detection (VAD)
-   * Uses precision Float32 Time-Domain RMS with Adaptive Noise Floor Tracking
-   * and dual-threshold hysteresis (fast attack < 20ms, crisp decay ~120ms).
    */
   private startVAD(stream: MediaStream) {
     try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioCtx) return;
-
-      if (!this.audioContext || this.audioContext.state === 'closed') {
-        this.audioContext = new AudioCtx();
-      }
-
-      if (this.audioContext.state === 'suspended') {
-        this.audioContext.resume().catch(() => {});
-      }
+      this.ensureAudioContext();
+      if (!this.audioContext) return;
 
       this.analyser = this.audioContext.createAnalyser();
       this.analyser.fftSize = 512;
-      this.analyser.smoothingTimeConstant = 0.15; // Low smoothing for instant real-time reactivity
+      this.analyser.smoothingTimeConstant = 0.15;
 
       this.micSource = this.audioContext.createMediaStreamSource(stream);
       this.micSource.connect(this.analyser);
@@ -478,7 +506,6 @@ class VoiceService {
           this.audioContext.resume().catch(() => {});
         }
 
-        // Read precision Float32 audio time-domain waveform (-1.0 to 1.0)
         this.analyser.getFloatTimeDomainData(floatData);
 
         let sumSquares = 0;
@@ -488,7 +515,7 @@ class VoiceService {
         }
         const rms = Math.sqrt(sumSquares / bufferLength);
 
-        // If user is muted, immediately zero out speaking and volume
+        // If user is muted, zero out speaking state immediately
         if (this.state.isMuted) {
           if (this.state.isSpeaking || this.state.localVolumeLevel > 0) {
             this.state.isSpeaking = false;
@@ -501,18 +528,14 @@ class VoiceService {
           return;
         }
 
-        // Dynamically track background noise floor when not speaking
+        // Dynamically track background noise floor when quiet
         if (rms < this.localNoiseFloor * 1.8 + 0.005) {
           this.localNoiseFloor = this.localNoiseFloor * 0.96 + rms * 0.04;
         }
 
-        // Adaptive thresholds:
-        // Attack threshold: Requires clear vocal onset above noise floor
         const speechAttackThreshold = Math.max(0.016, this.localNoiseFloor * 2.6 + 0.010);
-        // Release threshold: Sustains speech during vocalization, but cuts immediately on silence
         const speechReleaseThreshold = Math.max(0.011, this.localNoiseFloor * 1.9 + 0.006);
 
-        // Scale RMS to a calibrated 0-100 visual volume meter level
         const volumeFactor = Math.max(0, rms - this.localNoiseFloor);
         const normalizedVolume = Math.min(100, Math.round(Math.pow(volumeFactor * 22, 0.78) * 100));
         this.state.localVolumeLevel = normalizedVolume;
@@ -523,14 +546,12 @@ class VoiceService {
           this.localConsecutiveSpeechFrames++;
           this.localConsecutiveSilenceFrames = 0;
 
-          // Fast Attack: Trigger speaking state after ~2 consecutive frames (>25ms of real sound)
           if (this.localConsecutiveSpeechFrames >= 2 && !this.lastSpeakingState) {
             this.state.isSpeaking = true;
             this.lastSpeakingState = true;
             this.notify();
             this.broadcastSpeakingState(true, normalizedVolume);
           } else if (this.lastSpeakingState) {
-            // Periodic real-time update of volume level to peers
             const now = Date.now();
             if (now - this.lastBroadcastVolumeTime > 100) {
               this.lastBroadcastVolumeTime = now;
@@ -541,8 +562,6 @@ class VoiceService {
           this.localConsecutiveSilenceFrames++;
           this.localConsecutiveSpeechFrames = 0;
 
-          // Crisp Release: Turn off speaking indicator cleanly after ~7 silent frames (~110ms)
-          // This avoids syllable jitter while ensuring instant visual stop when player finishes talking.
           if (this.localConsecutiveSilenceFrames >= 7 && this.lastSpeakingState) {
             this.state.isSpeaking = false;
             this.lastSpeakingState = false;
@@ -594,11 +613,15 @@ class VoiceService {
     const pc = new RTCPeerConnection(ICE_SERVERS);
     this.peerConnections.set(peerSocketId, pc);
 
-    // Add local tracks to peer connection
+    // If local mic stream is active, attach tracks; otherwise add receive-only transceiver
     if (this.localStream) {
       this.localStream.getTracks().forEach((track) => {
         pc.addTrack(track, this.localStream!);
       });
+    } else {
+      try {
+        pc.addTransceiver('audio', { direction: 'recvonly' });
+      } catch {}
     }
 
     pc.onicecandidate = (event) => {
@@ -616,6 +639,9 @@ class VoiceService {
       const [remoteStream] = event.streams;
       if (remoteStream) {
         this.attachRemoteAudio(peerSocketId, peerUserId, remoteStream);
+      } else if (event.track) {
+        const stream = new MediaStream([event.track]);
+        this.attachRemoteAudio(peerSocketId, peerUserId, stream);
       }
     };
 
@@ -640,7 +666,7 @@ class VoiceService {
           });
         }
       } catch (err) {
-        console.warn('[VoiceService] createOffer error:', err);
+        console.warn('[VoiceService] createOffer notice:', err);
       }
     }
 
@@ -662,7 +688,9 @@ class VoiceService {
       if (signalData.sdp) {
         await pc.setRemoteDescription(new RTCSessionDescription(signalData.sdp));
         if (signalData.sdp.type === 'offer') {
-          const answer = await pc.createAnswer();
+          const answer = await pc.createAnswer({
+            offerToReceiveAudio: true,
+          });
           await pc.setLocalDescription(answer);
           if (this.socket) {
             this.socket.emit('voice:signal', {
@@ -677,7 +705,7 @@ class VoiceService {
         await pc.addIceCandidate(new RTCIceCandidate(signalData.candidate));
       }
     } catch (err) {
-      console.warn('[VoiceService] Signal error:', err);
+      console.warn('[VoiceService] Signal notice:', err);
     }
   }
 
@@ -700,6 +728,7 @@ class VoiceService {
 
     // Set up real-time Web Audio Analyser directly on the remote incoming stream
     try {
+      this.ensureAudioContext();
       if (this.audioContext && this.audioContext.state !== 'closed') {
         const source = this.audioContext.createMediaStreamSource(stream);
         const analyser = this.audioContext.createAnalyser();
@@ -739,7 +768,6 @@ class VoiceService {
                 this.notify();
               }
             } else {
-              // Update remote noise floor
               if (rms < remoteEntry.noiseFloor * 1.8 + 0.005) {
                 remoteEntry.noiseFloor = remoteEntry.noiseFloor * 0.96 + rms * 0.04;
               }
@@ -774,9 +802,7 @@ class VoiceService {
 
         requestAnimationFrame(processRemoteAudio);
       }
-    } catch (err) {
-      // AudioContext fallback to socket relay
-    }
+    } catch (err) {}
   }
 
   private closePeer(peerSocketId: string, peerUserId?: string) {
@@ -846,7 +872,7 @@ class VoiceService {
         }
       };
 
-      this.mediaRecorder.start(200); // 200ms low-latency chunks
+      this.mediaRecorder.start(200);
     } catch (err) {
       console.warn('[VoiceService] Fallback stream notice:', err);
     }
@@ -874,38 +900,63 @@ class VoiceService {
 
   // --- Public Controls ---
 
-  public toggleMute(): boolean {
-    const newMuted = !this.state.isMuted;
-    this.state.isMuted = newMuted;
+  /**
+   * Toggles microphone mute state.
+   * If unmuting for the first time, prompts for microphone access.
+   */
+  public async toggleMute(): Promise<boolean> {
+    const wantUnmute = this.state.isMuted;
 
-    if (this.localStream) {
-      this.localStream.getAudioTracks().forEach((t) => {
-        t.enabled = !newMuted;
-      });
-    }
-
-    if (newMuted) {
+    if (wantUnmute) {
+      if (!this.localStream) {
+        const ok = await this.initMicrophone();
+        if (!ok) {
+          this.state.isMuted = true;
+          this.state.error = 'Microphone permission needed to speak';
+          this.notify();
+          return true;
+        }
+      } else {
+        this.localStream.getAudioTracks().forEach((t) => {
+          t.enabled = true;
+        });
+      }
+      this.state.isMuted = false;
+      this.state.error = null;
+      this.startFallbackAudioStream();
+    } else {
+      this.state.isMuted = true;
+      if (this.localStream) {
+        this.localStream.getAudioTracks().forEach((t) => {
+          t.enabled = false;
+        });
+      }
       this.state.isSpeaking = false;
       this.state.localVolumeLevel = 0;
       this.lastSpeakingState = false;
       this.localConsecutiveSpeechFrames = 0;
       this.localConsecutiveSilenceFrames = 0;
       this.broadcastSpeakingState(false, 0);
+      this.stopFallbackAudioStream();
     }
 
     if (this.socket && this.roomId && this.currentUser) {
       this.socket.emit('voice:mute_state', {
         roomId: this.roomId,
         userId: this.currentUser.id,
-        isMuted: newMuted,
+        isMuted: this.state.isMuted,
         isDeafened: this.state.isDeafened,
       });
     }
 
     this.notify();
-    return newMuted;
+    return this.state.isMuted;
   }
 
+  /**
+   * Toggles deafen state (hearing other players).
+   * Turning sound off only affects this user locally and never disrupts others.
+   */
   public toggleDeafen(): boolean {
     const newDeafened = !this.state.isDeafened;
     this.state.isDeafened = newDeafened;
@@ -947,8 +998,7 @@ class VoiceService {
   public async setInputDevice(deviceId: string) {
     this.state.selectedDeviceId = deviceId;
     this.notify();
-    if (this.state.isConnected) {
-      // Reinitialize mic with new device
+    if (this.state.isConnected && !this.state.isMuted) {
       if (this.localStream) {
         this.localStream.getTracks().forEach((t) => t.stop());
       }
@@ -977,3 +1027,12 @@ class VoiceService {
 }
 
 export const voiceService = new VoiceService();
+
+// Global touch/click trigger to immediately lift mobile browser autoplay blocks
+if (typeof window !== 'undefined') {
+  const handleUserGesture = () => {
+    voiceService.resumeAllAudio();
+  };
+  window.addEventListener('click', handleUserGesture, { passive: true });
+  window.addEventListener('touchstart', handleUserGesture, { passive: true });
+}

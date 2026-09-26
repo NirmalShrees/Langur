@@ -13,6 +13,7 @@ import {
   LogOut,
   Sparkles,
   Users,
+  Bell,
 } from 'lucide-react';
 import { UserProfile, RoomState } from '../types.js';
 import { sound } from '../utils/audio.js';
@@ -28,6 +29,8 @@ interface HeaderProps {
   onLeaveRoom: () => void;
   isHost: boolean;
   faucetLoading: boolean;
+  onOpenNotifications?: () => void;
+  unreadNotificationCount?: number;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -41,6 +44,8 @@ export const Header: React.FC<HeaderProps> = ({
   onLeaveRoom,
   isHost,
   faucetLoading,
+  onOpenNotifications,
+  unreadNotificationCount = 0,
 }) => {
   const [copiedCode, setCopiedCode] = useState(false);
   const [isMuted, setIsMuted] = useState(sound.getIsMuted());
@@ -139,6 +144,22 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Navigation Buttons */}
           <div className="flex items-center gap-1">
+            {onOpenNotifications && (
+              <button
+                id="header-notifications-btn"
+                onClick={onOpenNotifications}
+                title="Notifications"
+                className="p-2 rounded-xl bg-slate-900/80 hover:bg-slate-800 text-amber-300 border border-slate-800 transition-colors relative cursor-pointer"
+              >
+                <Bell className="w-4 h-4" />
+                {unreadNotificationCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-500 text-slate-950 text-[9px] font-mono font-black flex items-center justify-center shadow-sm">
+                    {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
+                  </span>
+                )}
+              </button>
+            )}
+
             <button
               id="header-leaderboard-btn"
               onClick={onOpenLeaderboard}

@@ -511,9 +511,97 @@ class FastDatabase {
     return { success: true, message: `Equipped ${item.name}`, user: { ...u } };
   }
 
+  // --- Admin Privileged Operations ---
+
+  public getAllUsers(): UserProfile[] {
+    return Array.from(this.users.values())
+      .filter((u) => {
+        if (!u.id) return false;
+        const idLower = u.id.toLowerCase();
+        return (
+          !idLower.startsWith('seed-') &&
+          !idLower.startsWith('seed_') &&
+          !idLower.startsWith('bot_') &&
+          !idLower.startsWith('patron_') &&
+          !idLower.startsWith('smart_') &&
+          !idLower.startsWith('ai_')
+        );
+      })
+      .map((u) => ({ ...u }));
+  }
+
+  public adminSetCoins(
+    userId: string,
+    newBalance: number,
+    adminId = 'admin',
+    reason = 'Admin Grant'
+  ): { success: boolean; user?: UserProfile; delta: number; oldBalance: number } {
+    let u = this.users.get(userId);
+    if (!u) {
+      u = this.getOrCreateUser(userId, undefined, undefined, 5000);
+    }
+
+    const oldBalance = typeof u.coins === 'number' ? u.coins : 5000;
+    const finalBalance = Math.max(0, Math.floor(newBalance));
+    const delta = finalBalance - oldBalance;
+    u.coins = finalBalance;
+
+    this.auditLog.push({
+      id: `audit_admin_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      userId,
+      type: delta >= 0 ? 'win' : 'loss',
+      amount: Math.abs(delta),
+      balanceAfter: finalBalance,
+      timestamp: Date.now(),
+      details: { adminId, reason, delta, oldBalance },
+    });
+
+    this.scheduleSave();
+    return { success: true, user: { ...u }, delta, oldBalance };
+  }
+
+  public adminAdjustCoins(
+    userId: string,
+    amountDelta: number,
+    adminId = 'admin',
+    reason = 'Admin Adjustment'
+  ): { success: boolean; user?: UserProfile; delta: number; newBalance: number; oldBalance: number } {
+    let u = this.users.get(userId);
+    if (!u) {
+      u = this.getOrCreateUser(userId, undefined, undefined, 5000);
+    }
+
+    const oldBalance = typeof u.coins === 'number' ? u.coins : 5000;
+    const newBalance = Math.max(0, Math.floor(oldBalance + amountDelta));
+    const delta = newBalance - oldBalance;
+    u.coins = newBalance;
+
+    this.auditLog.push({
+      id: `audit_admin_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      userId,
+      type: delta >= 0 ? 'win' : 'loss',
+      amount: Math.abs(delta),
+      balanceAfter: newBalance,
+      timestamp: Date.now(),
+      details: { adminId, reason, delta, oldBalance },
+    });
+
+    this.scheduleSave();
+    return { success: true, user: { ...u }, delta, newBalance, oldBalance };
+  }
+
+  public adminSetIsAdmin(userId: string, isAdmin: boolean): boolean {
+    const u = this.users.get(userId);
+    if (!u) return false;
+    u.isAdmin = isAdmin;
+    u.is_admin = isAdmin;
+    this.scheduleSave();
+    return true;
+  }
+
   // --- Leaderboard Queries (O(1) from sorted cache) ---
 
-  public getLeaderboard(limit = 25): LeaderboardEntry[] {
+  public getLeaderboard(limit = 50): LeaderboardEntry[] {
     const all = Array.from(this.users.values());
     all.sort((a, b) => b.totalWinnings - a.totalWinnings || b.coins - a.coins);
 
@@ -525,8 +613,10 @@ class FastDatabase {
       coins: u.coins,
       totalWinnings: u.totalWinnings,
       gamesWon: u.gamesWon,
+      gamesPlayed: u.gamesPlayed || 0,
+      winRate: (u.gamesPlayed || 0) > 0 ? Math.round(((u.gamesWon || 0) / u.gamesPlayed) * 100) : 0,
       biggestWin: u.biggestWin,
-      equippedTitle: u.equipped.title,
+      equippedTitle: u.equipped?.title,
     }));
   }
 }

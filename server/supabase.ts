@@ -155,19 +155,25 @@ export async function fetchActiveTablesFromSupabase(): Promise<SupabaseTableReco
 }
 
 /**
- * Permanently deletes a table from Supabase game_tables when players count reaches 0.
+ * Permanently deletes a table from Supabase game_tables.
  */
 export async function deleteTableFromSupabase(roomId: string): Promise<boolean> {
   const sb = getSupabaseServerClient();
   if (!sb) return false;
 
   try {
-    const { error } = await sb.from('game_tables').delete().eq('id', roomId);
-    if (error) {
-      console.warn('[Server Supabase] deleteTableFromSupabase notice:', error.message);
-      return false;
+    // 1. Immediately mark table status closed and zero players
+    await sb.from('game_tables').update({ status: 'closed', player_count: 0, players: [], player_stats: [] }).eq('id', roomId);
+
+    // 2. Hard delete the row by ID or code
+    const { error: err1 } = await sb.from('game_tables').delete().eq('id', roomId);
+    await sb.from('game_tables').delete().eq('code', roomId);
+
+    if (err1) {
+      console.warn('[Server Supabase] deleteTableFromSupabase notice (marked closed):', err1.message);
+    } else {
+      console.log(`[Server Supabase] Table ${roomId} deleted from Supabase game_tables.`);
     }
-    console.log(`[Server Supabase] Table ${roomId} deleted as players reached 0.`);
     return true;
   } catch (err) {
     console.warn('[Server Supabase] deleteTableFromSupabase exception:', err);
@@ -178,8 +184,9 @@ export async function deleteTableFromSupabase(roomId: string): Promise<boolean> 
 /**
  * Sweeps Supabase and purges all redundant table entries:
  * 1. Tables with 0 or null players or status 'closed'
- * 2. Unused system lobby tables
+ * 2. Unused system lobby tables (e.g., 'public-royal-table')
  * 3. Orphaned tables not present in active memory rooms
+ * 4. Inactive tables with 0 real human players
  */
 export async function deleteZeroPlayerTablesFromSupabase(activeRoomIds?: string[]): Promise<number> {
   const sb = getSupabaseServerClient();
@@ -188,58 +195,83 @@ export async function deleteZeroPlayerTablesFromSupabase(activeRoomIds?: string[
   try {
     let totalPurged = 0;
 
-    // 1. Delete tables where player_count is 0 or less, is null, or status is 'closed'
-    const { data: zeroData, error: zeroErr } = await sb
+    // Fetch all existing tables from Supabase to thoroughly find redundant/abandoned ones
+    const { data: allTables, error: fetchErr } = await sb
+      .from('game_tables')
+      .select('id, code, name, player_count, status, players, player_stats, host_id, updated_at, created_at');
+
+    if (!fetchErr && allTables && allTables.length > 0) {
+      const redundantIds = allTables
+        .filter((t) => {
+          if (t.id === 'public-royal-table') return true;
+          if (t.status === 'closed') return true;
+          if (t.player_count === null || t.player_count === undefined || Number(t.player_count) <= 0) return true;
+          
+          // Check player_stats or players json array
+          const statsArr = Array.isArray(t.player_stats) ? t.player_stats : [];
+          const playersArr = Array.isArray(t.players) ? t.players : [];
+          const combinedPlayers = statsArr.length > 0 ? statsArr : playersArr;
+          
+          if (combinedPlayers.length === 0) return true;
+
+          // Check if all players are bots/patrons
+          const realPlayers = combinedPlayers.filter((p: any) => {
+            const pId = String(p?.id || '');
+            return !pId.startsWith('patron_') && !pId.startsWith('bot_') && pId !== '';
+          });
+          if (realPlayers.length === 0) return true;
+
+          // If activeRoomIds provided and table is not active in memory
+          if (activeRoomIds && Array.isArray(activeRoomIds) && !activeRoomIds.includes(t.id)) {
+            return true;
+          }
+
+          return false;
+        })
+        .map((t) => t.id);
+
+      if (redundantIds.length > 0) {
+        // Mark closed
+        await sb
+          .from('game_tables')
+          .update({ status: 'closed', player_count: 0, players: [], player_stats: [] })
+          .in('id', redundantIds);
+
+        // Hard delete from database table
+        const { data: deletedRows, error: delErr } = await sb
+          .from('game_tables')
+          .delete()
+          .in('id', redundantIds)
+          .select('id');
+
+        if (!delErr && deletedRows) {
+          totalPurged += deletedRows.length;
+        } else {
+          totalPurged += redundantIds.length;
+        }
+      }
+    }
+
+    // Direct deletion query fallback for any remaining closed or <=0 player rows
+    const { data: directDeleted } = await sb
       .from('game_tables')
       .delete()
       .or('player_count.lte.0,status.eq.closed,player_count.is.null')
       .select('id');
 
-    if (!zeroErr && zeroData) {
-      totalPurged += zeroData.length;
+    if (directDeleted) {
+      totalPurged += directDeleted.length;
     }
 
-    // 2. Explicitly remove any legacy or redundant public-royal-table
-    const { data: royalData } = await sb
-      .from('game_tables')
-      .delete()
-      .eq('id', 'public-royal-table')
-      .select('id');
-    if (royalData) {
-      totalPurged += royalData.length;
-    }
-
-    // 3. If active room IDs are provided, purge any orphaned table rows not running in memory
-    if (activeRoomIds && Array.isArray(activeRoomIds)) {
-      const { data: allTables } = await sb
-        .from('game_tables')
-        .select('id, player_count, updated_at');
-
-      if (allTables && allTables.length > 0) {
-        const orphanedIds = allTables
-          .filter((t) => !activeRoomIds.includes(t.id))
-          .map((t) => t.id);
-
-        if (orphanedIds.length > 0) {
-          const { data: orphanData } = await sb
-            .from('game_tables')
-            .delete()
-            .in('id', orphanedIds)
-            .select('id');
-
-          if (orphanData) {
-            totalPurged += orphanData.length;
-          }
-        }
-      }
-    }
+    // Explicitly delete public-royal-table
+    await sb.from('game_tables').delete().eq('id', 'public-royal-table');
 
     if (totalPurged > 0) {
-      console.log(`[Server Supabase] Purged ${totalPurged} redundant/unused tables from Supabase.`);
+      console.log(`[Server GC] Cleaned up ${totalPurged} redundant/unused tables from Supabase game_tables.`);
     }
     return totalPurged;
   } catch (err) {
-    console.warn('[Server Supabase] deleteZeroPlayerTablesFromSupabase exception:', err);
+    console.warn('[Server GC] deleteZeroPlayerTablesFromSupabase exception:', err);
     return 0;
   }
 }
@@ -390,6 +422,178 @@ export async function syncTableStateToSupabaseServer(room: RoomState): Promise<b
     return true;
   } catch (err) {
     console.warn('[Server Supabase] syncTableStateToSupabaseServer exception:', err);
+    return false;
+  }
+}
+
+// Known default superadmin emails
+export const SUPERADMIN_EMAILS = [
+  'lamrinshrees@gmail.com',
+];
+
+/**
+ * Checks if a user has admin privileges based on their ID, email, or DB is_admin flag.
+ */
+export async function checkIsAdmin(userId: string, email?: string): Promise<boolean> {
+  if (email && SUPERADMIN_EMAILS.includes(email.toLowerCase().trim())) {
+    return true;
+  }
+
+  const sb = getSupabaseServerClient();
+  if (!sb || !userId) return false;
+
+  try {
+    const { data } = await sb
+      .from('profiles')
+      .select('email, is_admin, stats')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (data) {
+      if (data.is_admin === true) return true;
+      if (data.email && SUPERADMIN_EMAILS.includes(data.email.toLowerCase().trim())) return true;
+      if (data.stats && typeof data.stats === 'object' && data.stats.isAdmin === true) return true;
+    }
+  } catch (e) {
+    console.warn('[Server Supabase] checkIsAdmin exception:', e);
+  }
+  return false;
+}
+
+/**
+ * Fetches all registered players from Supabase profiles for the Admin Panel.
+ */
+export async function fetchAllProfilesForAdmin(): Promise<any[]> {
+  const sb = getSupabaseServerClient();
+  if (!sb) return [];
+
+  try {
+    const { data, error } = await sb
+      .from('profiles')
+      .select('*')
+      .order('updated_at', { ascending: false })
+      .limit(200);
+
+    if (!error && Array.isArray(data)) {
+      return data.filter((p) => {
+        if (!p || !p.id) return false;
+        const idLower = String(p.id).toLowerCase();
+        return (
+          !idLower.startsWith('bot_') &&
+          !idLower.startsWith('patron_') &&
+          !idLower.startsWith('smart_') &&
+          !idLower.startsWith('seed-') &&
+          !idLower.startsWith('seed_') &&
+          !idLower.startsWith('ai_')
+        );
+      });
+    }
+  } catch (err) {
+    console.warn('[Server Supabase] fetchAllProfilesForAdmin exception:', err);
+  }
+  return [];
+}
+
+/**
+ * Admin: Updates player's coin balance in Supabase profiles.
+ */
+export async function updateUserCoinsInSupabase(
+  userId: string,
+  newBalance: number,
+  receipt?: any
+): Promise<boolean> {
+  const sb = getSupabaseServerClient();
+  if (!sb || !userId) return false;
+
+  try {
+    const finalBalance = Math.max(0, Math.floor(Number(newBalance) || 0));
+
+    // 1. Fetch current profile to append receipt if provided
+    let updatedReceipts: any[] | undefined = undefined;
+    let currentStats: any = undefined;
+
+    const { data: cur } = await sb
+      .from('profiles')
+      .select('coins, coin_history, stats')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (cur) {
+      currentStats = typeof cur.stats === 'object' && cur.stats !== null ? { ...cur.stats } : {};
+      if (receipt) {
+        const existingReceipts = Array.isArray(cur.coin_history)
+          ? cur.coin_history
+          : (Array.isArray(currentStats.coinHistory) ? currentStats.coinHistory : []);
+
+        updatedReceipts = [receipt, ...existingReceipts].slice(0, 50);
+      }
+    }
+
+    const updatePayload: Record<string, any> = {
+      coins: finalBalance,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (currentStats) {
+      currentStats.coins = finalBalance;
+      if (updatedReceipts) {
+        currentStats.coinHistory = updatedReceipts;
+      }
+      updatePayload.stats = currentStats;
+    }
+
+    if (updatedReceipts) {
+      updatePayload.coin_history = updatedReceipts;
+    }
+
+    let { error } = await sb
+      .from('profiles')
+      .update(updatePayload)
+      .eq('id', userId);
+
+    if (error && (error.message?.includes('coin_history') || (error as any).code === 'PGRST204')) {
+      delete updatePayload.coin_history;
+      const retry = await sb.from('profiles').update(updatePayload).eq('id', userId);
+      error = retry.error;
+    }
+
+    if (error) {
+      console.warn('[Server Supabase] updateUserCoinsInSupabase error:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('[Server Supabase] updateUserCoinsInSupabase exception:', err);
+    return false;
+  }
+}
+
+/**
+ * Admin: Grants or revokes admin status in Supabase profiles.
+ */
+export async function updateUserAdminStatusInSupabase(
+  userId: string,
+  isAdmin: boolean
+): Promise<boolean> {
+  const sb = getSupabaseServerClient();
+  if (!sb || !userId) return false;
+
+  try {
+    const { error } = await sb
+      .from('profiles')
+      .update({
+        is_admin: isAdmin,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', userId);
+
+    if (error) {
+      console.warn('[Server Supabase] updateUserAdminStatusInSupabase error:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('[Server Supabase] updateUserAdminStatusInSupabase exception:', err);
     return false;
   }
 }

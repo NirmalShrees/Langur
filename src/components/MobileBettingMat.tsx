@@ -404,7 +404,7 @@ const MobileBettingMatComponent: React.FC<MobileBettingMatProps> = ({
                   </span>
                 )}
 
-                {myBet > 0 ? (
+                {myBet > 0 && (
                   <div className="w-full sm:w-auto @[135px]:w-auto flex items-center justify-between sm:justify-center @[135px]:justify-center gap-1 px-1.5 py-0.5 rounded-md bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-black font-mono shadow-sm min-w-0">
                     <div className="flex items-center gap-1 min-w-0">
                       <Sparkles className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />
@@ -422,14 +422,6 @@ const MobileBettingMatComponent: React.FC<MobileBettingMatProps> = ({
                       </button>
                     )}
                   </div>
-                ) : totalPool > 0 ? (
-                  <span className="text-slate-400/90 font-mono text-[8.5px] sm:text-[9.5px] truncate font-medium bg-slate-900/40 sm:bg-transparent @[135px]:bg-transparent px-1 sm:px-0 py-0.5 rounded">
-                    Pool: {totalPool >= 10000 ? `${(totalPool / 1000).toFixed(1)}K` : totalPool.toLocaleString()}
-                  </span>
-                ) : (
-                  <span className="text-slate-500/70 font-mono text-[8.5px] sm:text-[9.5px]">
-                    {isBettingOpen ? `+${selectedChip >= 10000 ? `${(selectedChip / 1000).toFixed(selectedChip % 1000 === 0 ? 0 : 1)}K` : selectedChip.toLocaleString()}` : '—'}
-                  </span>
                 )}
               </div>
             </motion.div>

@@ -117,6 +117,8 @@ export interface UserProfile {
   createdAt: number;
   email?: string;
   isGuest?: boolean;
+  isAdmin?: boolean;
+  is_admin?: boolean;
   authProvider?: 'google' | 'email' | 'guest';
   profileConfigured?: boolean;
   hasPassword?: boolean;
@@ -200,6 +202,7 @@ export interface RoomState {
   settings: RoomSettings;
   phase: GamePhase;
   timer: number;
+  phaseStartedAt?: number;
   phaseEndsAt?: number;
   dice: SymbolType[];
   roundNumber: number;
@@ -258,6 +261,8 @@ export interface LeaderboardEntry {
   coins: number;
   totalWinnings: number;
   gamesWon: number;
+  gamesPlayed?: number;
+  winRate?: number;
   biggestWin: number;
   equippedTitle?: string;
 }

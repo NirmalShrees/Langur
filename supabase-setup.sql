@@ -34,6 +34,7 @@ create table if not exists public.profiles (
 
 -- 2. Add new columns to your existing table if they don't exist yet
 alter table public.profiles add column if not exists email text;
+alter table public.profiles add column if not exists is_admin boolean default false;
 alter table public.profiles add column if not exists avatar text default '🎲';
 alter table public.profiles add column if not exists stats jsonb default '{"gamesPlayed": 0, "gamesWon": 0, "totalWinnings": 0, "biggestWin": 0, "equipped": {"diceSkin": "dice_classic", "tableMat": "mat_velvet_green", "title": "Dice Novice"}, "inventory": ["dice_classic", "mat_velvet_green", "title_novice"]}'::jsonb;
 alter table public.profiles add column if not exists updated_at timestamptz default now();

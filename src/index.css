@@ -17,19 +17,19 @@
 
 @keyframes timerPulse {
   0%, 100% {
-    transform: scale(0.97);
+    transform: scale(1);
   }
   50% {
-    transform: scale(1.08);
+    transform: scale(1.05);
   }
 }
 
 @keyframes timerUrgentPulse {
   0%, 100% {
-    transform: scale(0.98);
+    transform: scale(1);
   }
   50% {
-    transform: scale(1.14);
+    transform: scale(1.08);
   }
 }
 
@@ -41,7 +41,21 @@
 }
 
 .animate-timer-urgent {
-  animation: timerUrgentPulse 0.5s ease-in-out infinite;
+  animation: timerUrgentPulse 1s ease-in-out infinite;
+  transform-origin: center;
+  display: inline-flex;
+  will-change: transform;
+}
+
+.animate-timer-tick {
+  animation: timerPulse 1s ease-in-out infinite;
+  transform-origin: center;
+  display: inline-flex;
+  will-change: transform;
+}
+
+.animate-timer-tick-urgent {
+  animation: timerUrgentPulse 1s ease-in-out infinite;
   transform-origin: center;
   display: inline-flex;
   will-change: transform;
