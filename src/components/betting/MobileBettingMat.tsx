@@ -214,93 +214,134 @@ const MobileBettingMatComponent: React.FC<MobileBettingMatProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      sound.playChipSound();
                       setShowDetailedReceipt((prev) => !prev);
                     }}
                     title="View itemized breakdown"
-                    className={`p-1 rounded-md text-[10px] transition-all shrink-0 flex items-center gap-0.5 border ${
+                    className={`p-1 rounded-md text-[10px] shrink-0 flex items-center gap-0.5 border cursor-pointer ${
                       showDetailedReceipt
                         ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold'
-                        : 'bg-slate-800/80 hover:bg-slate-700 text-amber-400 border-slate-700/60'
+                        : 'bg-slate-800/90 hover:bg-slate-700 text-amber-400 border-slate-700/80 active:scale-95'
                     }`}
                   >
                     <Receipt className="w-3 h-3" />
                   </button>
 
-                  {/* Absolute Dropdown Popover (DOES NOT alter mat height) */}
-                  <AnimatePresence>
-                    {showDetailedReceipt && (
-                      <>
-                        {/* Fixed invisible backdrop to dismiss dropdown on outside click */}
-                        <div
-                          className="fixed inset-0 z-40"
-                          onClick={() => setShowDetailedReceipt(false)}
-                        />
-                        <motion.div
-                          initial={{ opacity: 0, scale: 0.95, y: -4 }}
-                          animate={{ opacity: 1, scale: 1, y: 0 }}
-                          exit={{ opacity: 0, scale: 0.95, y: -4 }}
-                          transition={{ duration: 0.15, ease: 'easeOut' }}
-                          className="absolute right-0 top-full mt-1.5 w-64 max-w-[calc(100vw-2rem)] z-50 p-2.5 rounded-xl border border-amber-500/50 bg-[#070c17]/98 backdrop-blur-xl shadow-2xl text-xs font-mono ring-1 ring-black/80 select-text"
-                        >
-                          <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-amber-500/20 font-sans">
-                            <span className="text-[10.5px] font-bold text-amber-300 flex items-center gap-1.5">
-                              <Receipt className="w-3.5 h-3.5 text-amber-400" />
-                              Itemized Payout
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => setShowDetailedReceipt(false)}
-                              className="text-slate-400 hover:text-slate-200 text-xs px-1 rounded hover:bg-slate-800"
-                            >
-                              ✕
-                            </button>
-                          </div>
+                  {/* Absolute Dropdown Popover (Compact, zero-lag, tight layout) */}
+                  {showDetailedReceipt && (
+                    <>
+                      {/* Invisible dismissal overlay */}
+                      <div
+                        className="fixed inset-0 z-40 bg-black/40"
+                        onClick={() => setShowDetailedReceipt(false)}
+                      />
+                      <div
+                        className="absolute right-0 top-full mt-1 w-72 max-w-[calc(100vw-1rem)] z-50 p-2 rounded-xl border border-amber-500/50 bg-[#090e1d] shadow-2xl text-[10px] font-mono select-none"
+                      >
+                        {/* Header */}
+                        <div className="flex items-center justify-between pb-1 mb-1 border-b border-amber-500/25 font-sans">
+                          <span className="text-[10.5px] font-bold text-amber-200 flex items-center gap-1">
+                            <Receipt className="w-3 h-3 text-amber-400" />
+                            Itemized Breakdown
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setShowDetailedReceipt(false)}
+                            className="text-slate-400 hover:text-slate-200 text-[10px] w-4 h-4 flex items-center justify-center rounded hover:bg-slate-800 cursor-pointer font-sans"
+                          >
+                            ✕
+                          </button>
+                        </div>
 
-                          <div className="flex items-center justify-between text-slate-400 text-[9px] pb-1 border-b border-slate-800/80 mb-1 font-sans font-bold">
-                            <span>Symbol</span>
-                            <span>Bet</span>
-                            <span>Matches</span>
-                            <span>Payout</span>
-                          </div>
+                        {/* Column Headers */}
+                        <div className="grid grid-cols-4 text-slate-400 text-[8.5px] pb-0.5 border-b border-slate-800/80 mb-1 font-sans font-bold px-1">
+                          <span>Symbol</span>
+                          <span className="text-right">Bet</span>
+                          <span className="text-center">Roll</span>
+                          <span className="text-right">Outcome</span>
+                        </div>
 
-                          <div className="space-y-0.5 max-h-32 overflow-y-auto custom-scrollbar pr-0.5">
-                            {SYMBOL_KEYS.map((symKey) => {
-                              const bet = userBets[symKey] || 0;
-                              const count = lastResult.symbolCounts[symKey] || 0;
-                              const won = count >= 2 && bet > 0 ? bet + count * bet : 0;
-                              if (bet === 0 && count < 2) return null;
+                        {/* Itemized Rows */}
+                        <div className="space-y-0.5 max-h-36 overflow-y-auto custom-scrollbar pr-0.5">
+                          {SYMBOL_KEYS.map((symKey) => {
+                            const bet = userBets[symKey] || 0;
+                            const count = lastResult.symbolCounts[symKey] || 0;
+                            const isWin = count >= 2 && bet > 0;
+                            const isLoss = count < 2 && bet > 0;
+                            const won = isWin ? bet + count * bet : 0;
+
+                            if (bet === 0 && count < 2) return null;
+
+                            return (
+                              <div
+                                key={symKey}
+                                className={`grid grid-cols-4 items-center py-0.5 px-1 rounded border text-[9px] ${
+                                  isWin
+                                    ? 'text-emerald-200 font-bold bg-emerald-950/60 border-emerald-500/40'
+                                    : isLoss
+                                    ? 'text-rose-200 font-bold bg-rose-950/50 border-rose-500/40'
+                                    : 'text-slate-400 bg-slate-900/50 border-slate-800/60'
+                                }`}
+                              >
+                                <span className="flex items-center gap-1 min-w-0">
+                                  <div className="w-3 h-3 rounded-sm overflow-hidden flex items-center justify-center shrink-0 bg-[#FAF4D0]">
+                                    <img src={getSymbolImageDataUrl(symKey)} alt={LANGUR_BURJA_SYMBOLS[symKey].name} className="w-full h-full object-cover scale-[1.34]" />
+                                  </div>
+                                  <span className="truncate text-[9px] font-sans font-medium">{LANGUR_BURJA_SYMBOLS[symKey].name}</span>
+                                </span>
+                                <span className="text-right font-mono text-[9px]">
+                                  {bet > 0 ? `${bet.toLocaleString()} 🪙` : '0'}
+                                </span>
+                                <span className="text-center font-mono text-[8.5px]">
+                                  {count}x {isWin ? '✓' : isLoss ? (count === 1 ? '✗ (1x)' : '✗') : ''}
+                                </span>
+                                <span className={`text-right font-mono text-[9px] font-bold ${
+                                  isWin
+                                    ? 'text-emerald-300'
+                                    : isLoss
+                                    ? 'text-rose-400'
+                                    : 'text-slate-400'
+                                }`}>
+                                  {isWin
+                                    ? `+${won.toLocaleString()} 🪙`
+                                    : isLoss
+                                    ? `-${bet.toLocaleString()} 🪙`
+                                    : 'No Bet'}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Summary Totals */}
+                        <div className="mt-1.5 pt-1 border-t border-amber-500/20 flex flex-col gap-0.5 text-[9px] font-sans">
+                          <div className="flex items-center justify-between text-slate-400">
+                            <span>Stake: <span className="font-mono text-slate-300">{totalUserBet.toLocaleString()} 🪙</span></span>
+                            <span>Return: <span className="font-mono text-emerald-400">{playerWonAmount > 0 ? `+${playerWonAmount.toLocaleString()} 🪙` : '0 🪙'}</span></span>
+                          </div>
+                          <div className="flex items-center justify-between font-bold pt-0.5 border-t border-slate-800/60">
+                            <span className="text-amber-200">Net Profit / Loss:</span>
+                            {(() => {
+                              const net = playerWonAmount - totalUserBet;
                               return (
-                                <div
-                                  key={symKey}
-                                  className={`flex items-center justify-between py-0.5 text-[10px] px-1 rounded ${
-                                    won > 0 ? 'text-emerald-300 font-bold bg-emerald-950/40' : 'text-slate-400'
-                                  }`}
-                                >
-                                  <span className="flex items-center gap-1.5">
-                                    <div className="w-4 h-4 rounded-sm overflow-hidden flex items-center justify-center shrink-0 bg-[#FAF4D0]">
-                                      <img src={getSymbolImageDataUrl(symKey)} alt={LANGUR_BURJA_SYMBOLS[symKey].name} className="w-full h-full object-cover scale-[1.34]" />
-                                    </div>
-                                    <span>{LANGUR_BURJA_SYMBOLS[symKey].name}</span>
-                                  </span>
-                                  <span>{bet.toLocaleString()} 🪙</span>
-                                  <span>{count}x</span>
-                                  <span>{won > 0 ? `+${won.toLocaleString()} 🪙` : '0'}</span>
-                                </div>
+                                <span className={`font-mono text-[10px] ${
+                                  net > 0
+                                    ? 'text-emerald-400'
+                                    : net < 0
+                                    ? 'text-rose-400'
+                                    : 'text-slate-400'
+                                }`}>
+                                  {net > 0 ? `+${net.toLocaleString()} 🪙` : net < 0 ? `-${Math.abs(net).toLocaleString()} 🪙` : '0 🪙'}
+                                </span>
                               );
-                            })}
+                            })()}
                           </div>
-
-                          <div className="mt-2 pt-1 border-t border-amber-500/20 flex items-center justify-between text-[10px] font-sans">
-                            <span className="text-slate-400">Net Outcome:</span>
-                            <span className={`font-mono font-bold ${playerWonAmount > 0 ? 'text-emerald-400' : totalUserBet > 0 ? 'text-rose-400' : 'text-slate-400'}`}>
-                              {playerWonAmount > 0 ? `+${playerWonAmount.toLocaleString()} 🪙` : totalUserBet > 0 ? `-${totalUserBet.toLocaleString()} 🪙` : '0 🪙'}
-                            </span>
+                          <div className="text-[7.5px] text-amber-200/60 font-sans italic text-center mt-0.5">
+                            Rule: 1x & 0x match = Loss. 2x+ match = Win.
                           </div>
-                        </motion.div>
-                      </>
-                    )}
-                  </AnimatePresence>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             </motion.div>

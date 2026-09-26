@@ -100,56 +100,111 @@ export default function App() {
   // Fullscreen support for mobile - instantaneous, zero-lag, no blackscreen
   const toggleFullscreen = useCallback(() => {
     const doc = document as any;
-    const docEl = document.documentElement as any;
+    const targetElement = document.getElementById('root') || document.documentElement;
+
+    const triggerResizeEvents = () => {
+      window.dispatchEvent(new Event('resize'));
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 60);
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 200);
+    };
 
     try {
-      if (!doc.fullscreenElement && !doc.webkitFullscreenElement) {
-        if (docEl.requestFullscreen) {
-          docEl.requestFullscreen().catch(() => {
-            // Safari / mobile fallback
+      const isCurrentlyFs = Boolean(
+        doc.fullscreenElement ||
+        doc.webkitFullscreenElement ||
+        doc.mozFullScreenElement ||
+        doc.msFullscreenElement
+      );
+
+      if (!isCurrentlyFs && !isFullscreen) {
+        const req =
+          targetElement.requestFullscreen ||
+          (targetElement as any).webkitRequestFullscreen ||
+          (targetElement as any).mozRequestFullScreen ||
+          (targetElement as any).msRequestFullscreen;
+
+        if (req) {
+          req.call(targetElement).then(() => {
             setIsFullscreen(true);
             document.documentElement.classList.add('app-is-fullscreen');
+            document.body.classList.add('app-is-fullscreen');
+            triggerResizeEvents();
+          }).catch(() => {
+            // CSS fallback on rejection or mobile iframe restriction
+            setIsFullscreen(true);
+            document.documentElement.classList.add('app-is-fullscreen');
+            document.body.classList.add('app-is-fullscreen');
+            triggerResizeEvents();
           });
-        } else if (docEl.webkitRequestFullscreen) {
-          docEl.webkitRequestFullscreen();
         } else {
-          // Pure CSS viewport fallback for iOS / mobile browsers without Fullscreen API
+          // CSS fallback
           setIsFullscreen(true);
           document.documentElement.classList.add('app-is-fullscreen');
+          document.body.classList.add('app-is-fullscreen');
+          triggerResizeEvents();
         }
       } else {
-        if (doc.exitFullscreen) {
-          doc.exitFullscreen().catch(() => {});
-        } else if (doc.webkitExitFullscreen) {
-          doc.webkitExitFullscreen();
+        const exit =
+          doc.exitFullscreen ||
+          doc.webkitExitFullscreen ||
+          doc.mozCancelFullScreen ||
+          doc.msExitFullscreen;
+
+        if (exit && (doc.fullscreenElement || doc.webkitFullscreenElement)) {
+          exit.call(doc).catch(() => {});
         }
         setIsFullscreen(false);
         document.documentElement.classList.remove('app-is-fullscreen');
+        document.body.classList.remove('app-is-fullscreen');
+        triggerResizeEvents();
       }
     } catch {
-      // Safe toggle fallback
-      setIsFullscreen((prev) => !prev);
-      document.documentElement.classList.toggle('app-is-fullscreen');
+      setIsFullscreen((prev) => {
+        const next = !prev;
+        if (next) {
+          document.documentElement.classList.add('app-is-fullscreen');
+          document.body.classList.add('app-is-fullscreen');
+        } else {
+          document.documentElement.classList.remove('app-is-fullscreen');
+          document.body.classList.remove('app-is-fullscreen');
+        }
+        triggerResizeEvents();
+        return next;
+      });
     }
-  }, []);
+  }, [isFullscreen]);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
       const doc = document as any;
-      const isFs = Boolean(doc.fullscreenElement || doc.webkitFullscreenElement);
+      const isFs = Boolean(
+        doc.fullscreenElement ||
+        doc.webkitFullscreenElement ||
+        doc.mozFullScreenElement ||
+        doc.msFullscreenElement
+      );
       setIsFullscreen(isFs);
       if (isFs) {
         document.documentElement.classList.add('app-is-fullscreen');
+        document.body.classList.add('app-is-fullscreen');
       } else {
         document.documentElement.classList.remove('app-is-fullscreen');
+        document.body.classList.remove('app-is-fullscreen');
       }
+      window.dispatchEvent(new Event('resize'));
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 80);
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 250);
     };
 
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
     return () => {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
       document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
     };
   }, []);
 
@@ -1521,7 +1576,10 @@ export default function App() {
       // Update Player Balance & Stats after every round
       const playerProfit = playerTotalWon - playerTotalBet;
       if (playerTotalBet > 0) {
-        const nextCoins = currentUser.coins + playerProfit;
+        // NOTE: Player coins were already deducted when bets were placed in the betting phase.
+        // If the player won (2+ matches), playerTotalWon (stake + multiplier return) is credited.
+        // If the player got 0x or 1x on their bet symbol, playerTotalWon is 0 (the bet is lost).
+        const nextCoins = currentUser.coins + playerTotalWon;
         if (playerProfit > 0) {
           addCoinReceipt(currentUser.id, {
             amount: playerProfit,

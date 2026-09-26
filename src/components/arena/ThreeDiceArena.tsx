@@ -1190,30 +1190,53 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
     animationFrameRef.current = requestAnimationFrame(animate);
 
     // Responsive Canvas Resizing with instantaneous projection update and GPU buffer sizing
+    const handleContainerResize = (w: number, h: number) => {
+      const validW = w > 0 ? w : (container.clientWidth || container.parentElement?.clientWidth || 360);
+      const validH = h > 0 ? h : (container.clientHeight || container.parentElement?.clientHeight || 240);
+      if (validW > 0 && validH > 0 && rendererRef.current && cameraRef.current) {
+        cameraRef.current.aspect = validW / validH;
+        cameraRef.current.updateProjectionMatrix();
+        rendererRef.current.setSize(validW, validH, false);
+        if (sceneRef.current) {
+          rendererRef.current.render(sceneRef.current, cameraRef.current);
+        }
+      }
+    };
+
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width: newW, height: newH } = entry.contentRect;
-        if (newW > 0 && newH > 0 && rendererRef.current && cameraRef.current) {
-          cameraRef.current.aspect = newW / newH;
-          cameraRef.current.updateProjectionMatrix();
-          rendererRef.current.setSize(newW, newH, false);
-          if (sceneRef.current) {
-            rendererRef.current.render(sceneRef.current, cameraRef.current);
-          }
-        }
+        handleContainerResize(newW, newH);
       }
     });
     resizeObserver.observe(container);
 
+    const handleWindowResize = () => {
+      if (container) {
+        handleContainerResize(container.clientWidth, container.clientHeight);
+      }
+    };
+    window.addEventListener('resize', handleWindowResize);
+    window.addEventListener('orientationchange', handleWindowResize);
+
     const handleContextLost = (event: Event) => {
       event.preventDefault();
     };
+    const handleContextRestored = () => {
+      if (rendererRef.current && sceneRef.current && cameraRef.current) {
+        rendererRef.current.render(sceneRef.current, cameraRef.current);
+      }
+    };
     renderer.domElement.addEventListener('webglcontextlost', handleContextLost, false);
+    renderer.domElement.addEventListener('webglcontextrestored', handleContextRestored, false);
 
     return () => {
       cancelAnimationFrame(animationFrameRef.current);
       resizeObserver.disconnect();
+      window.removeEventListener('resize', handleWindowResize);
+      window.removeEventListener('orientationchange', handleWindowResize);
       renderer.domElement.removeEventListener('webglcontextlost', handleContextLost);
+      renderer.domElement.removeEventListener('webglcontextrestored', handleContextRestored);
       dom.removeEventListener('pointerdown', handlePointerDown);
       dom.removeEventListener('pointermove', handlePointerMove);
       dom.removeEventListener('pointerup', handlePointerUp);
