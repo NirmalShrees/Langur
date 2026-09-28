@@ -23,9 +23,16 @@ import {
   Sliders,
 } from 'lucide-react';
 import { UserProfile, SymbolType, LANGUR_BURJA_SYMBOLS, SYMBOL_KEYS } from '../../types.js';
+import { AppNotification } from '../../utils/notifications.js';
 import { UserAvatar } from '../common/UserAvatar.js';
 import { sound } from '../../utils/audio.js';
-import { deleteZeroPlayerTablesFromSupabase, deleteTableFromSupabase } from '../../services/tableService.js';
+import {
+  deleteZeroPlayerTablesFromSupabase,
+  deleteTableFromSupabase,
+  fetchPendingTableRequests,
+  decideTableRequest,
+  recordTableInSupabase,
+} from '../../services/tableService.js';
 
 interface AdminPanelModalProps {
   isOpen: boolean;
@@ -33,6 +40,7 @@ interface AdminPanelModalProps {
   currentUser: UserProfile;
   onShowToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   onUpdateCurrentUserCoins?: (newBalance: number) => void;
+  onAddNotification?: (note: AppNotification) => void;
   socket?: any;
 }
 
@@ -48,6 +56,10 @@ interface PlayerAdminData {
   totalWinnings: number;
   biggestWin: number;
   isAdmin: boolean;
+  canCreateTable?: boolean;
+  tableValidityDays?: number;
+  tablePermissionExpiresAt?: string | number;
+  createdTables?: any[];
   equippedTitle: string;
   createdAt: number;
   presence: 'online' | 'in_table' | 'offline';
@@ -71,6 +83,10 @@ interface TableAdminData {
   roundNumber: number;
   playerCount: number;
   realPlayerCount: number;
+  expiresAt?: string;
+  expires_at?: string;
+  validityDays?: number;
+  validity_days?: number;
   players: {
     id: string;
     username: string;
@@ -92,6 +108,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   currentUser,
   onShowToast,
   onUpdateCurrentUserCoins,
+  onAddNotification,
   socket,
 }) => {
   const [activeTab, setActiveTab] = useState<'players' | 'tables' | 'broadcast'>('players');
@@ -102,6 +119,13 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   // Data States
   const [players, setPlayers] = useState<PlayerAdminData[]>([]);
   const [tables, setTables] = useState<TableAdminData[]>([]);
+  const [tableRequests, setTableRequests] = useState<any[]>([]);
+
+  // Table Request Review State
+  const [reviewingRequest, setReviewingRequest] = useState<any | null>(null);
+  const [reviewHoursPreset, setReviewHoursPreset] = useState<'2h' | '6h' | '24h' | 'custom'>('24h');
+  const [reviewCustomHours, setReviewCustomHours] = useState<number>(24);
+  const [adminMessageInput, setAdminMessageInput] = useState<string>('Approved! Enjoy hosting your table!');
 
   // Coin Adjustment Modal / Panel State
   const [selectedPlayer, setSelectedPlayer] = useState<PlayerAdminData | null>(null);
@@ -109,6 +133,13 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   const [coinAdjustmentMode, setCoinAdjustmentMode] = useState<'grant' | 'deduct' | 'set'>('grant');
   const [coinReason, setCoinReason] = useState<string>('Admin Treasury Grant');
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
+
+  // Admin Role Confirmation State
+  const [adminConfirmPlayer, setAdminConfirmPlayer] = useState<PlayerAdminData | null>(null);
+
+  // Table Host Approval State & Timed Duration in Days
+  const [tableHostPlayer, setTableHostPlayer] = useState<PlayerAdminData | null>(null);
+  const [tableValidityDaysInput, setTableValidityDaysInput] = useState<number>(7);
 
   // Broadcast Message State
   const [broadcastTitle, setBroadcastTitle] = useState('Announcement');
@@ -119,6 +150,18 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   const [airdropAmount, setAirdropAmount] = useState<string>('25000');
   const [airdropTarget, setAirdropTarget] = useState<'online' | 'all'>('online');
   const [airdropReason, setAirdropReason] = useState<string>('Festival Celebration Gift');
+
+  // Fetch Table Requests
+  const fetchTableRequestsData = useCallback(async () => {
+    try {
+      const res = await fetchPendingTableRequests();
+      if (res.success && Array.isArray(res.requests)) {
+        setTableRequests(res.requests);
+      }
+    } catch (err) {
+      console.warn('Failed fetching table requests:', err);
+    }
+  }, []);
 
   // Fetch Players
   const fetchPlayers = useCallback(async () => {
@@ -154,8 +197,9 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     if (isOpen) {
       fetchPlayers();
       fetchTables();
+      fetchTableRequestsData();
     }
-  }, [isOpen, fetchPlayers, fetchTables]);
+  }, [isOpen, fetchPlayers, fetchTables, fetchTableRequestsData]);
 
   // Real-time socket sync for live player coin updates across sessions
   useEffect(() => {
@@ -174,14 +218,76 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
       fetchTables();
     };
 
+    const handleTableRequestReceived = (req: any) => {
+      setTableRequests((prev) => [req, ...prev.filter((r) => r.id !== req.id)]);
+      sound.playWinFanfare();
+      onShowToast(`👑 New table request from ${req.username || 'Player'} (${req.validityHours || 24} hrs)!`, 'info');
+    };
+
+    const handleTableRequestsUpdated = (payload: any) => {
+      setTableRequests((prev) => prev.filter((r) => r.id !== payload.requestId));
+    };
+
     socket.on('user:coins_changed', handleCoinsChanged);
     socket.on('rooms:updated', handleRoomsUpdated);
+    socket.on('admin:table_request', handleTableRequestReceived);
+    socket.on('admin:table_requests_updated', handleTableRequestsUpdated);
 
     return () => {
       socket.off('user:coins_changed', handleCoinsChanged);
       socket.off('rooms:updated', handleRoomsUpdated);
+      socket.off('admin:table_request', handleTableRequestReceived);
+      socket.off('admin:table_requests_updated', handleTableRequestsUpdated);
     };
-  }, [socket, selectedPlayer, fetchTables]);
+  }, [socket, selectedPlayer, fetchTables, onShowToast]);
+
+  // Handle Admin Decision on Table Request with message & validity hours
+  const handleDecideRequest = async (decision: 'approve' | 'decline') => {
+    if (!reviewingRequest) return;
+    const targetReq = reviewingRequest;
+    const effectiveHours =
+      reviewHoursPreset === '2h'
+        ? 2
+        : reviewHoursPreset === '6h'
+        ? 6
+        : reviewHoursPreset === '24h'
+        ? 24
+        : Math.max(1, Math.min(720, reviewCustomHours || 24));
+
+    setActionInProgress(targetReq.id);
+    try {
+      const res = await decideTableRequest({
+        requestId: targetReq.id,
+        decision,
+        adminId: currentUser.id,
+        adminName: currentUser.username || 'Admin',
+        adminMessage: adminMessageInput.trim() || (decision === 'approve' ? 'Approved! Enjoy your table!' : 'Request was declined.'),
+        validityHours: effectiveHours,
+      });
+
+      if (res.success) {
+        if (decision === 'approve') {
+          sound.playWinFanfare();
+          if (res.table) {
+            recordTableInSupabase(res.table).catch(() => {});
+          }
+        } else {
+          sound.playChipSound();
+        }
+        onShowToast(res.message || `Table request ${decision}d!`, 'success');
+        setTableRequests((prev) => prev.filter((r) => r.id !== targetReq.id));
+        setReviewingRequest(null);
+        fetchPlayers();
+        fetchTables();
+      } else {
+        onShowToast(res.message || 'Failed processing request', 'error');
+      }
+    } catch (err: any) {
+      onShowToast(err?.message || 'Error processing request', 'error');
+    } finally {
+      setActionInProgress(null);
+    }
+  };
 
   // Calculated Preview Balance for the Coin Panel
   const parsedInputAmount = useMemo(() => {
@@ -279,8 +385,13 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
         setPlayers((prev) =>
           prev.map((p) => (p.id === targetPlayer.id ? { ...p, coins: data.newBalance } : p))
         );
-        if (targetPlayer.id === currentUser.id && onUpdateCurrentUserCoins) {
-          onUpdateCurrentUserCoins(data.newBalance);
+        if (targetPlayer.id === currentUser.id) {
+          if (onUpdateCurrentUserCoins) {
+            onUpdateCurrentUserCoins(data.newBalance);
+          }
+          if (data.notification && onAddNotification) {
+            onAddNotification(data.notification);
+          }
         }
       } else {
         // Rollback on server error
@@ -340,6 +451,57 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
       onShowToast(err?.message || 'Network error', 'error');
     } finally {
       setActionInProgress(null);
+    }
+  };
+
+  // Handle Table Host Approval with Timed Duration in Days
+  const handleSaveTableHostApproval = async (
+    targetPlayer: PlayerAdminData,
+    canCreate: boolean,
+    days: number
+  ) => {
+    setActionInProgress(targetPlayer.id);
+    const expiresAt = canCreate ? new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString() : undefined;
+
+    // Optimistic update
+    setPlayers((prev) =>
+      prev.map((p) =>
+        p.id === targetPlayer.id
+          ? {
+              ...p,
+              canCreateTable: canCreate,
+              tableValidityDays: days,
+              tablePermissionExpiresAt: expiresAt,
+            }
+          : p
+      )
+    );
+
+    try {
+      const res = await fetch(`/api/admin/players/${targetPlayer.id}/table-approval`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ canCreate, validityDays: days }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        sound.playWinFanfare();
+        onShowToast(
+          canCreate
+            ? `👑 Table host approval granted to ${targetPlayer.username} for ${days} days!`
+            : `Table host approval revoked for ${targetPlayer.username}.`,
+          'success'
+        );
+      } else {
+        onShowToast(data.message || 'Failed updating table host approval', 'error');
+        fetchPlayers();
+      }
+    } catch (err: any) {
+      onShowToast(err?.message || 'Network error updating table approval', 'error');
+      fetchPlayers();
+    } finally {
+      setActionInProgress(null);
+      setTableHostPlayer(null);
     }
   };
 
@@ -594,6 +756,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
             onClick={() => {
               setActiveTab('tables');
               fetchTables();
+              fetchTableRequestsData();
             }}
             className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold shrink-0 cursor-pointer ${
               activeTab === 'tables'
@@ -605,12 +768,14 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
             <span>Tables</span>
             <span
               className={`inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-mono font-black rounded-full ${
-                activeTab === 'tables'
+                tableRequests.length > 0
+                  ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                  : activeTab === 'tables'
                   ? 'bg-slate-950/30 text-slate-950'
                   : 'bg-slate-800 text-amber-300'
               }`}
             >
-              {tables.length}
+              {tableRequests.length > 0 ? tableRequests.length : tables.length}
             </span>
           </button>
 
@@ -737,6 +902,11 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                                 ADMIN
                               </span>
                             )}
+                            {player.canCreateTable && (
+                              <span className="text-[8px] px-1.5 py-0.2 rounded font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 flex items-center gap-0.5" title={`Table Host Approved (${player.tableValidityDays || 7} days validity)`}>
+                                👑 HOST ({player.tableValidityDays || 7}d)
+                              </span>
+                            )}
                             {player.id === currentUser.id && (
                               <span className="text-[8px] px-1.5 py-0.2 rounded font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
                                 YOU
@@ -770,8 +940,25 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                         </span>
                       </div>
 
-                      {/* Right: Coin Action Button & Admin Toggle */}
-                      <div className="flex items-center gap-1.5 shrink-0">
+                      {/* Right: Table Host Approval, Coin Action Button & Admin Toggle */}
+                      <div className="flex items-center gap-1.5 shrink-0 flex-wrap sm:flex-nowrap">
+                        {/* Table Host Approval Button */}
+                        <button
+                          onClick={() => {
+                            setTableHostPlayer(player);
+                            setTableValidityDaysInput(player.tableValidityDays || 7);
+                          }}
+                          title={player.canCreateTable ? 'Manage Table Host Approval' : 'Approve Table Host Privileges'}
+                          className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl border text-[11px] font-mono font-bold transition-all active:scale-95 cursor-pointer shadow-sm ${
+                            player.canCreateTable
+                              ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-300 hover:bg-emerald-900/60'
+                              : 'bg-slate-900/90 border-slate-700 text-slate-400 hover:text-amber-200 hover:border-amber-500/40'
+                          }`}
+                        >
+                          <Crown className={`w-3 h-3 ${player.canCreateTable ? 'text-emerald-400 fill-emerald-400' : 'text-slate-400'}`} />
+                          <span>{player.canCreateTable ? `${player.tableValidityDays || 7}d Host` : 'Host Access'}</span>
+                        </button>
+
                         {/* Dedicated Coin Management Button that opens the Add/Deduct Panel */}
                         <button
                           onClick={() => {
@@ -783,20 +970,20 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500/20 to-amber-600/30 hover:from-amber-500/30 hover:to-amber-600/40 text-amber-300 border border-amber-500/40 text-xs font-mono font-bold active:scale-95 transition-all shadow-sm cursor-pointer"
                         >
                           <Coins className="w-3.5 h-3.5 text-amber-400" />
-                          <span>Adjust Coins</span>
+                          <span>Coins</span>
                         </button>
 
                         <button
-                          onClick={() => handleToggleAdminStatus(player)}
+                          onClick={() => setAdminConfirmPlayer(player)}
                           title={player.isAdmin ? 'Revoke Admin Privileges' : 'Grant Admin Privileges'}
                           disabled={actionInProgress === player.id}
                           className={`p-1.5 rounded-xl border transition-all active:scale-95 cursor-pointer ${
                             player.isAdmin
-                              ? 'bg-purple-950/60 border-purple-500/40 text-purple-300'
-                              : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-amber-300'
+                              ? 'bg-purple-950/60 border-purple-500/40 text-purple-300 hover:border-purple-400'
+                              : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-amber-300 hover:border-slate-600'
                           }`}
                         >
-                          <Crown className="w-3.5 h-3.5" />
+                          <ShieldCheck className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </div>
@@ -806,32 +993,128 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
             </div>
           )}
 
-          {/* TAB 2: TABLES & PURGE */}
+          {/* TAB 2: TABLES & TABLE REQUESTS */}
           {activeTab === 'tables' && (
-            <div className="space-y-2.5">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <span className="text-xs font-semibold text-amber-200">
-                  Tables ({tables.length})
-                </span>
-                <div className="flex items-center gap-1.5">
+            <div className="space-y-4">
+              {/* SECTION 1: TABLE CREATION REQUESTS */}
+              <div className="space-y-2.5 p-3 sm:p-3.5 rounded-2xl bg-slate-950/70 border border-amber-500/30">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Crown className="w-4 h-4 text-amber-400" />
+                    <span className="text-xs font-serif font-bold text-amber-200">
+                      Table Creation Requests ({tableRequests.length})
+                    </span>
+                    {tableRequests.length > 0 && (
+                      <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-amber-500 text-slate-950 animate-pulse">
+                        Action Required
+                      </span>
+                    )}
+                  </div>
                   <button
-                    onClick={handleTriggerGC}
-                    disabled={actionInProgress === 'gc'}
-                    title="Purge 0-player, closed, and orphaned tables from Supabase & Game Engine"
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-rose-950/80 hover:bg-rose-900 text-rose-200 border border-rose-500/40 text-xs font-semibold transition-all cursor-pointer active:scale-95 shadow-sm disabled:opacity-50"
-                  >
-                    <Trash2 className={`w-3.5 h-3.5 text-rose-400 ${actionInProgress === 'gc' ? 'animate-spin' : ''}`} />
-                    <span>Delete Redundant Tables</span>
-                  </button>
-                  <button
-                    onClick={fetchTables}
-                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-300 border border-slate-700 text-xs font-semibold transition-all cursor-pointer"
+                    type="button"
+                    onClick={fetchTableRequestsData}
+                    className="p-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-amber-300 border border-slate-700 text-xs flex items-center gap-1 cursor-pointer active:scale-95"
                   >
                     <RefreshCw className="w-3 h-3" />
-                    <span>Refresh</span>
+                    <span className="text-[10px]">Refresh</span>
                   </button>
                 </div>
+
+                {tableRequests.length === 0 ? (
+                  <div className="py-4 text-center rounded-xl bg-slate-900/40 border border-slate-800/80 text-slate-400 text-xs space-y-1">
+                    <div className="flex items-center justify-center gap-1.5 text-emerald-400 font-semibold text-xs">
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>No pending table requests</span>
+                    </div>
+                    <p className="text-[10.5px] text-slate-500">
+                      When players or admins request to create a table, they appear here for your review and approval.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {tableRequests.map((req) => (
+                      <div
+                        key={req.id}
+                        className="p-3 rounded-xl bg-slate-900/90 border border-amber-500/40 hover:border-amber-400 transition-all flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 shadow-md"
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-slate-100 text-xs">{req.username}</span>
+                            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                              {req.validityHours || 24} Hours
+                            </span>
+                            {req.isPrivate && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                                Private
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-slate-300 font-medium">
+                            Table: <strong className="text-amber-200">{req.tableName}</strong>
+                          </div>
+                          <div className="text-[10px] text-slate-400 font-mono">
+                            Countdown: {req.bettingDuration || 20}s • Requested {new Date(req.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 self-end sm:self-center">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              sound.playChipSound();
+                              setReviewingRequest(req);
+                              setReviewHoursPreset(
+                                req.validityHours === 2
+                                  ? '2h'
+                                  : req.validityHours === 6
+                                  ? '6h'
+                                  : req.validityHours === 24
+                                  ? '24h'
+                                  : 'custom'
+                              );
+                              setReviewCustomHours(req.validityHours || 24);
+                              setAdminMessageInput(`Approved! Enjoy hosting "${req.tableName}" with your friends!`);
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-bold text-xs shadow-md shadow-emerald-950/60 border border-emerald-400 flex items-center gap-1.5 cursor-pointer active:scale-95"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Review & Approve</span>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
+
+              {/* SECTION 2: LIVE & SAVED GAME TABLES */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="text-xs font-semibold text-amber-200">
+                    Live Active Tables ({tables.length})
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={handleTriggerGC}
+                      disabled={actionInProgress === 'gc'}
+                      title="Purge 0-player, closed, and orphaned tables from Supabase & Game Engine"
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-rose-950/80 hover:bg-rose-900 text-rose-200 border border-rose-500/40 text-xs font-semibold transition-all cursor-pointer active:scale-95 shadow-sm disabled:opacity-50"
+                    >
+                      <Trash2 className={`w-3.5 h-3.5 text-rose-400 ${actionInProgress === 'gc' ? 'animate-spin' : ''}`} />
+                      <span>Delete Redundant Tables</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        fetchTables();
+                        fetchTableRequestsData();
+                      }}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-300 border border-slate-700 text-xs font-semibold transition-all cursor-pointer"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      <span>Refresh</span>
+                    </button>
+                  </div>
+                </div>
 
               <div className="space-y-2">
                 {tables.length === 0 ? (
@@ -932,7 +1215,8 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                 )}
               </div>
             </div>
-          )}
+          </div>
+        )}
 
           {/* TAB 3: BROADCAST */}
           {activeTab === 'broadcast' && (
@@ -1290,6 +1574,384 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                       ? `Deduct -${parsedInputAmount.toLocaleString()} 🪙 Now`
                       : `Set Balance to ${parsedInputAmount.toLocaleString()} 🪙`}
                   </span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* 5. Role Confirmation Modal Panel */}
+        {adminConfirmPlayer && (
+          <div
+            className="absolute inset-0 bg-black/85 backdrop-blur-md z-30 flex items-center justify-center p-3 animate-in fade-in duration-150"
+            onClick={() => setAdminConfirmPlayer(null)}
+          >
+            <div
+              className="w-full max-w-md rounded-2xl bg-gradient-to-b from-[#11192e] to-[#080d19] border border-amber-500/50 p-4 sm:p-5 shadow-2xl shadow-black flex flex-col gap-4 text-slate-100 animate-in zoom-in-95 duration-150"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center gap-3">
+                <div
+                  className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shrink-0 ${
+                    adminConfirmPlayer.isAdmin
+                      ? 'bg-rose-950/80 border border-rose-500/50 text-rose-400'
+                      : 'bg-gradient-to-br from-amber-400 to-amber-600 border border-amber-300 text-slate-950'
+                  }`}
+                >
+                  <Crown className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-serif font-black text-sm sm:text-base text-amber-200">
+                    {adminConfirmPlayer.isAdmin ? 'Revoke Admin Access?' : 'Grant Admin Privileges?'}
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Target Player: <span className="text-white font-bold">{adminConfirmPlayer.username}</span>
+                  </p>
+                </div>
+              </div>
+
+              {/* Player Info Summary */}
+              <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-lg overflow-hidden border border-amber-400/40">
+                    <UserAvatar
+                      avatar={adminConfirmPlayer.avatar}
+                      name={adminConfirmPlayer.username}
+                      size="sm"
+                      className="w-full h-full rounded-none"
+                    />
+                  </div>
+                  <div>
+                    <div className="font-bold text-amber-200">{adminConfirmPlayer.username}</div>
+                    <div className="text-[10px] text-slate-500 font-mono">
+                      {adminConfirmPlayer.email || `ID: ${adminConfirmPlayer.id.substring(0, 10)}...`}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-right font-mono">
+                  <span className="text-[10px] text-slate-400">Current Role: </span>
+                  <span
+                    className={`font-bold text-[10px] px-1.5 py-0.5 rounded ${
+                      adminConfirmPlayer.isAdmin
+                        ? 'bg-purple-950 text-purple-300 border border-purple-500/30'
+                        : 'bg-slate-800 text-slate-300'
+                    }`}
+                  >
+                    {adminConfirmPlayer.isAdmin ? 'ADMIN' : 'PLAYER'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Warning Notice */}
+              <p className="text-xs text-slate-300 leading-relaxed bg-amber-950/20 border border-amber-500/30 rounded-xl p-3">
+                {adminConfirmPlayer.isAdmin
+                  ? `Are you sure you want to remove admin capabilities from ${adminConfirmPlayer.username}? They will no longer be able to manage tables, adjust player balances, or broadcast announcements.`
+                  : `Are you sure you want to grant full administrator privileges to ${adminConfirmPlayer.username}? They will gain complete access to the Admin Treasury, game tables, and global announcements.`}
+              </p>
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setAdminConfirmPlayer(null)}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700/80 font-bold text-xs transition-all active:scale-95 cursor-pointer"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = adminConfirmPlayer;
+                    setAdminConfirmPlayer(null);
+                    handleToggleAdminStatus(target);
+                  }}
+                  className={`flex-1 py-2.5 rounded-xl font-bold text-xs shadow-lg transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-1.5 ${
+                    adminConfirmPlayer.isAdmin
+                      ? 'bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600 text-white shadow-rose-950/60'
+                      : 'bg-gradient-to-r from-purple-600 via-amber-500 to-amber-600 hover:opacity-90 text-slate-950 font-black shadow-amber-950/60'
+                  }`}
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>
+                    {adminConfirmPlayer.isAdmin ? 'Confirm Revoke' : 'Confirm Promotion'}
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 6. Table Host Approval Modal Panel (Timed Validity in Days) */}
+        {tableHostPlayer && (
+          <div
+            className="absolute inset-0 bg-black/85 backdrop-blur-md z-30 flex items-center justify-center p-3 animate-in fade-in duration-150"
+            onClick={() => setTableHostPlayer(null)}
+          >
+            <div
+              className="w-full max-w-md rounded-2xl bg-gradient-to-b from-[#11192e] to-[#080d19] border border-emerald-500/50 p-4 sm:p-5 shadow-2xl shadow-black flex flex-col gap-4 text-slate-100 animate-in zoom-in-95 duration-150"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-950/80 border border-emerald-300 text-slate-950 shrink-0">
+                  <Crown className="w-5 h-5 fill-slate-950" />
+                </div>
+                <div>
+                  <h3 className="font-serif font-black text-sm sm:text-base text-emerald-200">
+                    Table Host Permissions
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Player: <span className="text-white font-bold">{tableHostPlayer.username}</span>
+                  </p>
+                </div>
+              </div>
+
+              {/* Player Current Host Status */}
+              <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-lg overflow-hidden border border-emerald-400/40">
+                    <UserAvatar
+                      avatar={tableHostPlayer.avatar}
+                      name={tableHostPlayer.username}
+                      size="sm"
+                      className="w-full h-full rounded-none"
+                    />
+                  </div>
+                  <div>
+                    <div className="font-bold text-slate-200">{tableHostPlayer.username}</div>
+                    <div className="text-[10px] text-slate-500 font-mono">
+                      {tableHostPlayer.email || `ID: ${tableHostPlayer.id.substring(0, 10)}...`}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-right font-mono">
+                  <span className="text-[10px] text-slate-400">Status: </span>
+                  <span
+                    className={`font-bold text-[10px] px-2 py-0.5 rounded ${
+                      tableHostPlayer.canCreateTable
+                        ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/40'
+                        : 'bg-slate-800 text-slate-400'
+                    }`}
+                  >
+                    {tableHostPlayer.canCreateTable ? `APPROVED (${tableHostPlayer.tableValidityDays || 7}d)` : 'NOT APPROVED'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Duration Selector in Days */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs font-bold text-amber-200">
+                  <span>Table Host Validity (Timed in Days)</span>
+                  <span className="font-mono text-emerald-300 text-sm font-black">{tableValidityDaysInput} Days</span>
+                </div>
+
+                <div className="grid grid-cols-4 gap-1.5">
+                  {[1, 3, 7, 14, 30, 60, 90, 365].map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => setTableValidityDaysInput(d)}
+                      className={`py-2 px-1 rounded-xl text-xs font-mono font-bold border transition-all cursor-pointer ${
+                        tableValidityDaysInput === d
+                          ? 'bg-emerald-500/25 border-emerald-400 text-emerald-200 ring-2 ring-emerald-400/30 font-black'
+                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                      }`}
+                    >
+                      {d} {d === 1 ? 'Day' : 'Days'}
+                    </button>
+                  ))}
+                </div>
+
+                <p className="text-[11px] text-slate-400 leading-tight pt-1">
+                  Once approved, the user can create and host tables for <strong className="text-emerald-300">{tableValidityDaysInput} days</strong>. After this time expires, the table will be deleted automatically.
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2 pt-1">
+                {tableHostPlayer.canCreateTable && (
+                  <button
+                    type="button"
+                    onClick={() => handleSaveTableHostApproval(tableHostPlayer, false, 0)}
+                    className="py-2.5 px-3 rounded-xl bg-rose-950/70 hover:bg-rose-900 text-rose-300 border border-rose-500/40 font-bold text-xs transition-all active:scale-95 cursor-pointer shrink-0"
+                  >
+                    Revoke
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setTableHostPlayer(null)}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 font-bold text-xs transition-all active:scale-95 cursor-pointer"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleSaveTableHostApproval(tableHostPlayer, true, tableValidityDaysInput)}
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 font-black text-xs shadow-lg shadow-emerald-950/60 transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-1.5 border border-emerald-300/60"
+                >
+                  <Crown className="w-4 h-4 fill-slate-950" />
+                  <span>Approve ({tableValidityDaysInput} Days)</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 7. Review Table Creation Request Modal (with Message Input & Duration in Hours) */}
+        {reviewingRequest && (
+          <div
+            className="absolute inset-0 bg-black/85 backdrop-blur-md z-30 flex items-center justify-center p-3 animate-in fade-in duration-150"
+            onClick={() => setReviewingRequest(null)}
+          >
+            <div
+              className="w-full max-w-md rounded-2xl bg-gradient-to-b from-[#11192e] to-[#080d19] border border-amber-500/50 p-4 sm:p-5 shadow-2xl shadow-black flex flex-col gap-3.5 text-slate-100 animate-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-lg text-slate-950 shrink-0">
+                    <Crown className="w-4 h-4 fill-slate-950" />
+                  </div>
+                  <div>
+                    <h3 className="font-serif font-black text-sm sm:text-base text-amber-200">
+                      Review Table Request
+                    </h3>
+                    <p className="text-[11px] text-slate-400">
+                      Requested by: <span className="text-white font-bold">{reviewingRequest.username}</span>
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setReviewingRequest(null)}
+                  className="p-1 rounded-lg bg-slate-800 text-slate-400 hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Request Info Box */}
+              <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1.5 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Table Name:</span>
+                  <span className="font-bold text-amber-200">{reviewingRequest.tableName}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Privacy:</span>
+                  <span className="font-mono text-purple-300">{reviewingRequest.isPrivate ? 'Private (Code Only)' : 'Public'}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Betting Timer:</span>
+                  <span className="font-mono text-sky-300">{reviewingRequest.bettingDuration || 20}s</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Requested Duration:</span>
+                  <span className="font-mono text-emerald-300 font-bold">{reviewingRequest.validityHours || 24} Hours</span>
+                </div>
+              </div>
+
+              {/* Duration Setting in Hours */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] font-bold text-amber-200">
+                  <span>Approved Active Duration</span>
+                  <span className="font-mono text-emerald-300 text-xs">
+                    {reviewHoursPreset === 'custom'
+                      ? `${reviewCustomHours || 24} Hours`
+                      : reviewHoursPreset === '2h'
+                      ? '2 Hours'
+                      : reviewHoursPreset === '6h'
+                      ? '6 Hours'
+                      : '24 Hours'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-4 gap-1.5">
+                  {[
+                    { key: '2h', label: '2 hrs' },
+                    { key: '6h', label: '6 hrs' },
+                    { key: '24h', label: '24 hrs' },
+                    { key: 'custom', label: 'Custom' },
+                  ].map(({ key, label }) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => {
+                        sound.playChipSound();
+                        setReviewHoursPreset(key as any);
+                      }}
+                      className={`py-1.5 px-1 rounded-xl text-xs font-mono font-bold border transition-all text-center cursor-pointer ${
+                        reviewHoursPreset === key
+                          ? 'bg-amber-500/25 border-amber-400 text-amber-200 ring-1 ring-amber-400/40'
+                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {reviewHoursPreset === 'custom' && (
+                  <div className="mt-1 p-2 rounded-xl bg-slate-950 border border-amber-500/30 flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-slate-300">Active Hours:</span>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        min={1}
+                        max={720}
+                        value={reviewCustomHours}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value, 10);
+                          setReviewCustomHours(isNaN(val) ? 1 : Math.max(1, Math.min(720, val)));
+                        }}
+                        className="w-16 px-2 py-0.5 rounded-lg bg-slate-900 border border-slate-700 text-amber-300 font-mono font-bold text-xs text-center focus:outline-none"
+                      />
+                      <span className="text-xs font-mono text-slate-400">hrs</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Admin Message to Player Input */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-300">
+                  Admin Message to Player:
+                </label>
+                <textarea
+                  rows={2}
+                  value={adminMessageInput}
+                  onChange={(e) => setAdminMessageInput(e.target.value)}
+                  placeholder="Type a message (e.g. Approved! Enjoy your private table with your friends!)..."
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-400 resize-none"
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => handleDecideRequest('decline')}
+                  disabled={Boolean(actionInProgress)}
+                  className="py-2.5 px-3 rounded-xl bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-500/40 font-bold text-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+                >
+                  Decline
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleDecideRequest('approve')}
+                  disabled={Boolean(actionInProgress)}
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 font-black text-xs shadow-lg shadow-emerald-950/60 transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-1.5 border border-emerald-300/60 disabled:opacity-50"
+                >
+                  <CheckCircle2 className="w-4 h-4 fill-slate-950" />
+                  <span>Approve & Send Message</span>
                 </button>
               </div>
             </div>

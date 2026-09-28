@@ -41,6 +41,9 @@ export interface SupabaseTableRecord {
   players?: any[];
   history?: any[];
   table_stats?: any;
+  expires_at?: string;
+  validity_days?: number;
+  approval_status?: 'pending' | 'approved' | 'rejected';
   created_at?: string;
   updated_at?: string;
 }
@@ -195,37 +198,19 @@ export async function deleteZeroPlayerTablesFromSupabase(activeRoomIds?: string[
   try {
     let totalPurged = 0;
 
-    // Fetch all existing tables from Supabase to thoroughly find redundant/abandoned ones
+    // Fetch all existing tables from Supabase to find expired/closed ones
     const { data: allTables, error: fetchErr } = await sb
       .from('game_tables')
-      .select('id, code, name, player_count, status, players, player_stats, host_id, updated_at, created_at');
+      .select('id, code, name, player_count, status, players, player_stats, host_id, updated_at, created_at, expires_at');
 
     if (!fetchErr && allTables && allTables.length > 0) {
+      const nowMs = Date.now();
       const redundantIds = allTables
         .filter((t) => {
           if (t.id === 'public-royal-table') return true;
           if (t.status === 'closed') return true;
-          if (t.player_count === null || t.player_count === undefined || Number(t.player_count) <= 0) return true;
-          
-          // Check player_stats or players json array
-          const statsArr = Array.isArray(t.player_stats) ? t.player_stats : [];
-          const playersArr = Array.isArray(t.players) ? t.players : [];
-          const combinedPlayers = statsArr.length > 0 ? statsArr : playersArr;
-          
-          if (combinedPlayers.length === 0) return true;
-
-          // Check if all players are bots/patrons
-          const realPlayers = combinedPlayers.filter((p: any) => {
-            const pId = String(p?.id || '');
-            return !pId.startsWith('patron_') && !pId.startsWith('bot_') && pId !== '';
-          });
-          if (realPlayers.length === 0) return true;
-
-          // If activeRoomIds provided and table is not active in memory
-          if (activeRoomIds && Array.isArray(activeRoomIds) && !activeRoomIds.includes(t.id)) {
-            return true;
-          }
-
+          // Only purge if table validity has actually expired!
+          if (t.expires_at && new Date(t.expires_at).getTime() < nowMs) return true;
           return false;
         })
         .map((t) => t.id);
@@ -252,22 +237,11 @@ export async function deleteZeroPlayerTablesFromSupabase(activeRoomIds?: string[
       }
     }
 
-    // Direct deletion query fallback for any remaining closed or <=0 player rows
-    const { data: directDeleted } = await sb
-      .from('game_tables')
-      .delete()
-      .or('player_count.lte.0,status.eq.closed,player_count.is.null')
-      .select('id');
-
-    if (directDeleted) {
-      totalPurged += directDeleted.length;
-    }
-
     // Explicitly delete public-royal-table
     await sb.from('game_tables').delete().eq('id', 'public-royal-table');
 
     if (totalPurged > 0) {
-      console.log(`[Server GC] Cleaned up ${totalPurged} redundant/unused tables from Supabase game_tables.`);
+      console.log(`[Server GC] Cleaned up ${totalPurged} expired/closed tables from Supabase game_tables.`);
     }
     return totalPurged;
   } catch (err) {
@@ -321,8 +295,15 @@ export async function syncTableStateToSupabaseServer(room: RoomState): Promise<b
 
   try {
     const playersArr = Object.values(room.players || {});
-    if (playersArr.length === 0) {
-      // If table has 0 players remaining, delete it immediately from Supabase
+    const validityHours = (room as any).validityHours || (room as any).validity_hours || (room.validityDays ? room.validityDays * 24 : 24);
+    const validityDays = Math.max(1, Math.ceil(validityHours / 24));
+    const expiresAt = room.expiresAt
+      ? (typeof room.expiresAt === 'number' ? new Date(room.expiresAt).toISOString() : room.expiresAt)
+      : (room.expires_at || new Date(Date.now() + validityHours * 60 * 60 * 1000).toISOString());
+
+    const isExpired = expiresAt ? new Date(expiresAt).getTime() < Date.now() : false;
+    if (isExpired) {
+      // If table time has actually expired, delete it from Supabase
       await deleteTableFromSupabase(room.id);
       return true;
     }
@@ -386,12 +367,26 @@ export async function syncTableStateToSupabaseServer(room: RoomState): Promise<b
     const hostPlayer = room.players[room.hostId];
     const hostName = hostPlayer?.username || 'Host';
 
+    const leaderId = (room as any).leaderId || (room as any).leader_id || room.hostId;
+    const leaderName = (room as any).leaderName || (room as any).leader_name || hostName;
+    const approvedByAdminId = (room as any).approvedByAdminId || (room as any).approved_by_admin_id;
+    const approvedByAdminName = (room as any).approvedByAdminName || (room as any).approved_by_admin_name;
+    const adminApprovalMessage = (room as any).adminApprovalMessage || (room as any).admin_approval_message;
+    const approvedAt = (room as any).approvedAt || (room as any).approved_at || new Date().toISOString();
+
     const payload: Record<string, any> = {
       id: room.id,
       code: room.code.trim().toUpperCase(),
       name: room.name.trim(),
+      leader_id: leaderId,
+      leader_name: leaderName,
       host_id: room.hostId,
       host_name: hostName,
+      approved: true,
+      approved_by_admin_id: approvedByAdminId,
+      approved_by_admin_name: approvedByAdminName,
+      admin_approval_message: adminApprovalMessage,
+      approved_at: approvedAt,
       is_private: room.isPrivate,
       betting_duration: room.settings.bettingDuration,
       player_count: playersArr.length,
@@ -400,6 +395,10 @@ export async function syncTableStateToSupabaseServer(room: RoomState): Promise<b
       players: playerStats,
       history: compactHistory,
       table_stats: compactTableStats,
+      expires_at: expiresAt,
+      validity_hours: validityHours,
+      validity_days: validityDays,
+      approval_status: 'approved',
       updated_at: new Date().toISOString(),
     };
 
@@ -409,7 +408,13 @@ export async function syncTableStateToSupabaseServer(room: RoomState): Promise<b
       delete payload.player_stats;
       const retry = await sb.from('game_tables').upsert(payload, { onConflict: 'id' });
       error = retry.error;
-    } else if (error && error.message?.toLowerCase().includes('players')) {
+    }
+    if (error && error.message?.toLowerCase().includes('approved')) {
+      delete payload.approved;
+      const retry = await sb.from('game_tables').upsert(payload, { onConflict: 'id' });
+      error = retry.error;
+    }
+    if (error && error.message?.toLowerCase().includes('players')) {
       delete payload.players;
       const retry = await sb.from('game_tables').upsert(payload, { onConflict: 'id' });
       error = retry.error;
@@ -495,26 +500,165 @@ export async function fetchAllProfilesForAdmin(): Promise<any[]> {
 }
 
 /**
+ * Updates user notifications in Supabase profiles table
+ */
+export async function updateUserNotificationsInSupabase(
+  userId: string,
+  notifications: any[]
+): Promise<boolean> {
+  const sb = getSupabaseServerClient();
+  if (!sb || !userId || !Array.isArray(notifications)) return false;
+
+  try {
+    const formatted = notifications.map((n) => {
+      const base: any = {
+        id: String(n.id || `note_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`),
+        title: String(n.title || 'Notification'),
+        message: String(n.message || ''),
+        type: String(n.type || 'system'),
+        timestamp: Number(n.timestamp) || Date.now(),
+      };
+      if (n.state === 'not seen') {
+        base.state = 'not seen';
+      }
+      return base;
+    }).slice(0, 50);
+
+    const { error } = await sb
+      .from('profiles')
+      .update({
+        notifications: formatted,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', userId);
+
+    if (error) {
+      console.warn('[Server Supabase] updateUserNotificationsInSupabase error:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('[Server Supabase] updateUserNotificationsInSupabase exception:', err);
+    return false;
+  }
+}
+
+/**
+ * Deletes a single notification for a user in Supabase
+ */
+export async function deleteUserNotificationInSupabase(
+  userId: string,
+  notificationId: string
+): Promise<boolean> {
+  const sb = getSupabaseServerClient();
+  if (!sb || !userId || !notificationId) return false;
+
+  try {
+    const { data: cur } = await sb
+      .from('profiles')
+      .select('notifications')
+      .eq('id', userId)
+      .maybeSingle();
+
+    const existing: any[] = Array.isArray(cur?.notifications) ? cur.notifications : [];
+    const remaining = existing.filter((n: any) => String(n.id) !== String(notificationId));
+
+    const { error } = await sb
+      .from('profiles')
+      .update({
+        notifications: remaining,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', userId);
+
+    if (error) {
+      console.warn('[Server Supabase] deleteUserNotificationInSupabase error:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('[Server Supabase] deleteUserNotificationInSupabase exception:', err);
+    return false;
+  }
+}
+
+/**
+ * Clears all notifications for a user in Supabase
+ */
+export async function clearUserNotificationsInSupabase(userId: string): Promise<boolean> {
+  const sb = getSupabaseServerClient();
+  if (!sb || !userId) return false;
+
+  try {
+    const { error } = await sb
+      .from('profiles')
+      .update({
+        notifications: [],
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', userId);
+
+    if (error) {
+      console.warn('[Server Supabase] clearUserNotificationsInSupabase error:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('[Server Supabase] clearUserNotificationsInSupabase exception:', err);
+    return false;
+  }
+}
+
+/**
  * Admin: Updates player's coin balance in Supabase profiles.
  */
 export async function updateUserCoinsInSupabase(
   userId: string,
   newBalance: number,
-  receipt?: any
-): Promise<boolean> {
+  receipt?: any,
+  notificationReason?: string | { id?: string; title?: string; message?: string; type?: string; state?: string }
+): Promise<{ success: boolean; notification?: any }> {
   const sb = getSupabaseServerClient();
-  if (!sb || !userId) return false;
+  if (!sb || !userId) return { success: false };
 
   try {
     const finalBalance = Math.max(0, Math.floor(Number(newBalance) || 0));
+    const delta = receipt?.amount || 0;
 
-    // 1. Fetch current profile to append receipt if provided
+    // 1. Build notification object reliably
+    let resultingNotification: any = undefined;
+    if (typeof notificationReason === 'object' && notificationReason !== null) {
+      resultingNotification = {
+        id: notificationReason.id || `note_admin_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        title: notificationReason.title || (delta >= 0 ? '🪙 Treasury Reward' : '🪙 Treasury Adjustment'),
+        message: notificationReason.message || (delta >= 0 ? `+${delta.toLocaleString()} 🪙` : `${delta.toLocaleString()} 🪙`),
+        type: notificationReason.type || (delta >= 0 ? 'reward' : 'treasury'),
+        timestamp: Date.now(),
+        state: 'not seen',
+      };
+    } else if (receipt || notificationReason) {
+      const noteMsg =
+        typeof notificationReason === 'string'
+          ? notificationReason
+          : receipt?.description || (delta >= 0 ? `+${delta.toLocaleString()} 🪙` : `${delta.toLocaleString()} 🪙`);
+      resultingNotification = {
+        id: `note_admin_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        title: delta >= 0 ? '🪙 Treasury Coins Granted' : '🪙 Treasury Coins Deducted',
+        message: noteMsg,
+        type: delta >= 0 ? 'reward' : 'treasury',
+        timestamp: Date.now(),
+        state: 'not seen',
+      };
+    }
+
+    // 2. Fetch current profile to append receipt & notification
     let updatedReceipts: any[] | undefined = undefined;
+    let updatedNotifications: any[] | undefined = undefined;
     let currentStats: any = undefined;
 
     const { data: cur } = await sb
       .from('profiles')
-      .select('coins, coin_history, stats')
+      .select('id, coins, coin_history, notifications, stats')
       .eq('id', userId)
       .maybeSingle();
 
@@ -526,6 +670,21 @@ export async function updateUserCoinsInSupabase(
           : (Array.isArray(currentStats.coinHistory) ? currentStats.coinHistory : []);
 
         updatedReceipts = [receipt, ...existingReceipts].slice(0, 50);
+      }
+
+      if (resultingNotification) {
+        const existingNotes = Array.isArray(cur.notifications) ? cur.notifications : [];
+        updatedNotifications = [
+          resultingNotification,
+          ...existingNotes.filter((n: any) => n.id !== resultingNotification.id),
+        ].slice(0, 50);
+      }
+    } else {
+      if (receipt) {
+        updatedReceipts = [receipt];
+      }
+      if (resultingNotification) {
+        updatedNotifications = [resultingNotification];
       }
     }
 
@@ -546,10 +705,20 @@ export async function updateUserCoinsInSupabase(
       updatePayload.coin_history = updatedReceipts;
     }
 
+    if (updatedNotifications) {
+      updatePayload.notifications = updatedNotifications;
+    }
+
     let { error } = await sb
       .from('profiles')
       .update(updatePayload)
       .eq('id', userId);
+
+    if (error && (error.message?.includes('notifications') || (error as any).code === 'PGRST204')) {
+      delete updatePayload.notifications;
+      const retry = await sb.from('profiles').update(updatePayload).eq('id', userId);
+      error = retry.error;
+    }
 
     if (error && (error.message?.includes('coin_history') || (error as any).code === 'PGRST204')) {
       delete updatePayload.coin_history;
@@ -559,12 +728,62 @@ export async function updateUserCoinsInSupabase(
 
     if (error) {
       console.warn('[Server Supabase] updateUserCoinsInSupabase error:', error.message);
-      return false;
+      return { success: false };
     }
-    return true;
+    return { success: true, notification: resultingNotification };
   } catch (err) {
     console.warn('[Server Supabase] updateUserCoinsInSupabase exception:', err);
-    return false;
+    return { success: false };
+  }
+}
+
+/**
+ * Broadcasts an announcement to all user profiles in Supabase notifications column
+ */
+export async function broadcastNotificationToSupabase(
+  title: string,
+  message: string,
+  type: string = 'announcement'
+): Promise<number> {
+  const sb = getSupabaseServerClient();
+  if (!sb) return 0;
+
+  try {
+    const { data: profiles, error: fetchErr } = await sb
+      .from('profiles')
+      .select('id, notifications');
+
+    if (fetchErr || !profiles || profiles.length === 0) return 0;
+
+    const newNote = {
+      id: `note_bcast_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      title: title || '📢 Announcement',
+      message: message.trim(),
+      type: type || 'announcement',
+      timestamp: Date.now(),
+      state: 'not seen', // Starts with 'not seen' state
+    };
+
+    let updatedCount = 0;
+    for (const p of profiles) {
+      if (!p.id || p.id.startsWith('guest_')) continue;
+      const existing = Array.isArray(p.notifications) ? p.notifications : [];
+      const updatedNotes = [newNote, ...existing.filter((n: any) => n.id !== newNote.id)].slice(0, 50);
+
+      await sb
+        .from('profiles')
+        .update({
+          notifications: updatedNotes,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', p.id);
+      
+      updatedCount++;
+    }
+    return updatedCount;
+  } catch (err) {
+    console.warn('[Server Supabase] broadcastNotificationToSupabase exception:', err);
+    return 0;
   }
 }
 
@@ -597,4 +816,248 @@ export async function updateUserAdminStatusInSupabase(
     return false;
   }
 }
+
+/**
+ * Admin: Grants or revokes Table Host Approval for a user, specifying duration in days.
+ */
+export async function updateUserTableHostApproval(
+  userId: string,
+  canCreate: boolean,
+  validityDays: number = 7
+): Promise<{ success: boolean; expiresAt?: string; message?: string }> {
+  const sb = getSupabaseServerClient();
+  if (!sb || !userId) return { success: false, message: 'Missing database client or userId' };
+
+  try {
+    const expiresAt = canCreate
+      ? new Date(Date.now() + validityDays * 24 * 60 * 60 * 1000).toISOString()
+      : null;
+
+    // Fetch existing stats to update stats JSONB in tandem
+    const { data: cur } = await sb
+      .from('profiles')
+      .select('stats, notifications')
+      .eq('id', userId)
+      .maybeSingle();
+
+    const currentStats = typeof cur?.stats === 'object' && cur?.stats !== null ? { ...cur.stats } : {};
+    currentStats.canCreateTable = canCreate;
+    currentStats.tableValidityDays = validityDays;
+    currentStats.tablePermissionExpiresAt = expiresAt;
+
+    // Create celebratory notification if approved
+    let updatedNotifications = Array.isArray(cur?.notifications) ? cur.notifications : [];
+    if (canCreate) {
+      const approvalNote = {
+        id: `note_host_approval_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        title: '👑 Table Host Approved!',
+        message: `Admin has approved your request to host game tables! You can create and host tables for the next ${validityDays} days.`,
+        type: 'reward',
+        timestamp: Date.now(),
+        state: 'not seen',
+      };
+      updatedNotifications = [approvalNote, ...updatedNotifications].slice(0, 50);
+    }
+
+    const { error } = await sb
+      .from('profiles')
+      .update({
+        can_create_table: canCreate,
+        table_permission_expires_at: expiresAt,
+        table_validity_days: validityDays,
+        stats: currentStats,
+        notifications: updatedNotifications,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', userId);
+
+    if (error) {
+      console.warn('[Server Supabase] updateUserTableHostApproval error:', error.message);
+      return { success: false, message: error.message };
+    }
+
+    return {
+      success: true,
+      expiresAt: expiresAt || undefined,
+      message: canCreate
+        ? `Table host approval granted for ${validityDays} days!`
+        : 'Table host approval revoked.',
+    };
+  } catch (err: any) {
+    console.warn('[Server Supabase] updateUserTableHostApproval exception:', err);
+    return { success: false, message: err?.message || 'Server error updating table approval' };
+  }
+}
+
+/**
+ * Sends a high-priority notification to all Admin user profiles in Supabase.
+ */
+export async function notifyAllAdminsInSupabase(
+  title: string,
+  message: string,
+  extraData?: Record<string, any>
+): Promise<number> {
+  const sb = getSupabaseServerClient();
+  if (!sb) return 0;
+
+  try {
+    const { data: profiles, error } = await sb
+      .from('profiles')
+      .select('id, email, is_admin, stats, notifications');
+
+    if (error || !profiles) return 0;
+
+    let notifiedCount = 0;
+    const now = Date.now();
+
+    for (const p of profiles) {
+      const emailMatch = p.email && SUPERADMIN_EMAILS.includes(p.email.toLowerCase().trim());
+      const isAdminFlag = p.is_admin === true || (p.stats && typeof p.stats === 'object' && p.stats.isAdmin === true);
+
+      if (emailMatch || isAdminFlag) {
+        const note = {
+          id: `note_admin_req_${now}_${Math.random().toString(36).substring(2, 6)}`,
+          title: title || '👑 Table Creation Request',
+          message: message.trim(),
+          type: 'announcement',
+          timestamp: now,
+          state: 'not seen',
+          ...extraData,
+        };
+
+        const existingNotes = Array.isArray(p.notifications) ? p.notifications : [];
+        const updated = [note, ...existingNotes.filter((n: any) => n.id !== note.id)].slice(0, 50);
+
+        await sb.from('profiles').update({ notifications: updated, updated_at: new Date().toISOString() }).eq('id', p.id);
+        notifiedCount++;
+      }
+    }
+    return notifiedCount;
+  } catch (err) {
+    console.warn('[Server Supabase] notifyAllAdminsInSupabase error:', err);
+    return 0;
+  }
+}
+
+/**
+ * Saves or updates a table creation request in Supabase table_requests table.
+ */
+export async function saveTableRequestToSupabase(request: {
+  id: string;
+  userId: string;
+  username: string;
+  tableName: string;
+  isPrivate: boolean;
+  bettingDuration: number;
+  validityHours: number;
+  status: string;
+  approvedByAdminId?: string;
+  approvedByAdminName?: string;
+  adminMessage?: string;
+}): Promise<boolean> {
+  const sb = getSupabaseServerClient();
+  if (!sb) return false;
+
+  try {
+    const payload = {
+      id: request.id,
+      user_id: request.userId,
+      username: request.username,
+      table_name: request.tableName,
+      is_private: request.isPrivate,
+      betting_duration: request.bettingDuration,
+      validity_hours: request.validityHours,
+      status: request.status,
+      approved_by_admin_id: request.approvedByAdminId,
+      approved_by_admin_name: request.approvedByAdminName,
+      admin_message: request.adminMessage,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await sb.from('table_requests').upsert(payload, { onConflict: 'id' });
+    if (error) {
+      console.warn('[Server Supabase] saveTableRequestToSupabase notice:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('[Server Supabase] saveTableRequestToSupabase exception:', err);
+    return false;
+  }
+}
+
+/**
+ * Fetches all pending table creation requests from Supabase.
+ */
+export async function fetchPendingTableRequestsFromSupabase(): Promise<any[]> {
+  const sb = getSupabaseServerClient();
+  if (!sb) return [];
+
+  try {
+    const { data, error } = await sb
+      .from('table_requests')
+      .select('*')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false });
+
+    if (!error && Array.isArray(data)) {
+      return data.map((r) => ({
+        id: r.id,
+        userId: r.user_id,
+        username: r.username,
+        tableName: r.table_name,
+        isPrivate: r.is_private,
+        bettingDuration: r.betting_duration,
+        validityHours: r.validity_hours,
+        status: r.status,
+        createdAt: new Date(r.created_at).getTime(),
+      }));
+    }
+  } catch (err) {
+    console.warn('[Server Supabase] fetchPendingTableRequestsFromSupabase exception:', err);
+  }
+  return [];
+}
+
+/**
+ * Safely inserts or updates a table record into Supabase game_tables.
+ * Handles schema differences gracefully with automatic column stripping retries.
+ */
+export async function saveTableToSupabaseSafe(tableRecord: any): Promise<boolean> {
+  const sb = getSupabaseServerClient();
+  if (!sb || !tableRecord?.id) return false;
+
+  const payload: Record<string, any> = { ...tableRecord };
+
+  try {
+    let { error } = await sb.from('game_tables').upsert(payload, { onConflict: 'id' });
+
+    if (error && (error.message?.toLowerCase().includes('player_stats') || (error as any).code === 'PGRST204')) {
+      delete payload.player_stats;
+      const retry = await sb.from('game_tables').upsert(payload, { onConflict: 'id' });
+      error = retry.error;
+    }
+    if (error && error.message?.toLowerCase().includes('approved')) {
+      delete payload.approved;
+      const retry = await sb.from('game_tables').upsert(payload, { onConflict: 'id' });
+      error = retry.error;
+    }
+    if (error && error.message?.toLowerCase().includes('players')) {
+      delete payload.players;
+      const retry = await sb.from('game_tables').upsert(payload, { onConflict: 'id' });
+      error = retry.error;
+    }
+
+    if (error) {
+      console.warn('[Server Supabase] saveTableToSupabaseSafe notice:', error.message);
+      return false;
+    }
+    console.log(`[Server Supabase] Table ${tableRecord.name} (${tableRecord.id}) saved to Supabase (approved=${Boolean(tableRecord.approved)})`);
+    return true;
+  } catch (err) {
+    console.warn('[Server Supabase] saveTableToSupabaseSafe exception:', err);
+    return false;
+  }
+}
+
 

@@ -24,15 +24,26 @@ export interface GameTableRecord {
   id: string;
   code: string;
   name: string;
+  leader_id?: string;
+  leader_name?: string;
   host_id: string;
   host_name: string;
+  approved?: boolean;
+  approval_status?: 'pending' | 'approved' | 'declined';
+  approved_by_admin_id?: string;
+  approved_by_admin_name?: string;
+  admin_approval_message?: string;
+  approved_at?: string;
   is_private: boolean;
   betting_duration: number;
   player_count: number;
-  status: 'waiting' | 'active' | 'closed';
+  status: 'waiting' | 'active' | 'closed' | 'pending_approval';
   player_stats?: any[];
   players?: TablePlayerRecord[];
   history?: any[];
+  expires_at?: string;
+  validity_hours?: number;
+  validity_days?: number;
   table_stats?: {
     totalRounds: number;
     totalBets: number;
@@ -45,25 +56,38 @@ export interface GameTableRecord {
 }
 
 /**
- * Records a newly created game table and its unique private code in Supabase.
+ * Records a newly created game table and its unique private code in Supabase game_tables.
  */
 export async function recordTableInSupabase(table: {
   id: string;
   code: string;
   name: string;
+  leaderId?: string;
+  leaderName?: string;
   hostId: string;
   hostName: string;
+  approvedByAdminId?: string;
+  approvedByAdminName?: string;
+  adminApprovalMessage?: string;
+  approvedAt?: string;
   isPrivate: boolean;
   bettingDuration: number;
   playerCount?: number;
   status?: 'waiting' | 'active' | 'closed';
   players?: any[];
+  validityHours?: number;
+  validityDays?: number;
+  expiresAt?: string;
 }): Promise<{ success: boolean; error?: string }> {
   if (!isSupabaseConfigured() || !supabase) {
     return { success: true };
   }
 
   try {
+    const validityHours = table.validityHours || (table.validityDays ? table.validityDays * 24 : 24);
+    const validityDays = Math.max(1, Math.ceil(validityHours / 24));
+    const expiresAt = table.expiresAt || new Date(Date.now() + validityHours * 60 * 60 * 1000).toISOString();
+
     const playerStats = (table.players || []).map((p: any) => ({
       id: p.id,
       username: p.username,
@@ -91,20 +115,37 @@ export async function recordTableInSupabase(table: {
       netProfit: p.sessionStats?.netProfit || 0,
     }));
 
+    const isTableApproved = (table as any).approved !== undefined
+      ? Boolean((table as any).approved)
+      : ((table as any).approval_status === 'approved' || (table as any).approvalStatus === 'approved' || !table.status || table.status === 'waiting' || table.status === 'active');
+
+    const approvalStatus = (table as any).approval_status || (table as any).approvalStatus || (isTableApproved ? 'approved' : 'pending');
+
     const payload: Record<string, any> = {
       id: table.id,
       code: table.code.trim().toUpperCase(),
       name: table.name.trim(),
+      leader_id: table.leaderId || table.hostId,
+      leader_name: table.leaderName || table.hostName,
       host_id: table.hostId,
       host_name: table.hostName,
+      approved: isTableApproved,
+      approval_status: approvalStatus,
+      approved_by_admin_id: table.approvedByAdminId,
+      approved_by_admin_name: table.approvedByAdminName,
+      admin_approval_message: table.adminApprovalMessage,
+      approved_at: table.approvedAt || (isTableApproved ? new Date().toISOString() : undefined),
       is_private: table.isPrivate,
       betting_duration: table.bettingDuration,
-      player_count: table.playerCount || 1,
-      status: table.status || 'waiting',
+      player_count: table.playerCount || 0,
+      status: table.status || (isTableApproved ? 'waiting' : 'pending_approval'),
       players: compactPlayers,
       player_stats: playerStats,
       history: [],
       table_stats: { totalRounds: 0, totalBets: 0, totalPayouts: 0 },
+      expires_at: expiresAt,
+      validity_hours: validityHours,
+      validity_days: validityDays,
       updated_at: new Date().toISOString(),
     };
 
@@ -343,8 +384,8 @@ export async function deleteTableFromSupabase(roomId: string): Promise<{ success
 }
 
 /**
- * Sweeps and purges all tables with 0 players or closed status from Supabase.
- * Executes both hard DELETE and fallback status='closed' update for maximum compatibility.
+ * Sweeps and purges all tables whose time has expired or have closed status from Supabase.
+ * Tables that have not expired stay active even with 0 players until their time runs out.
  */
 export async function deleteZeroPlayerTablesFromSupabase(): Promise<number> {
   let purged = 0;
@@ -354,60 +395,37 @@ export async function deleteZeroPlayerTablesFromSupabase(): Promise<number> {
     try {
       const { data: allTables } = await supabase
         .from('game_tables')
-        .select('id, code, player_count, status, players, player_stats');
+        .select('id, code, player_count, status, expires_at');
 
       if (allTables && allTables.length > 0) {
-        const redundantIds = allTables
+        const nowMs = Date.now();
+        const expiredIds = allTables
           .filter((t) => {
             if (t.id === 'public-royal-table') return true;
             if (t.status === 'closed') return true;
-            if (t.player_count === null || t.player_count === undefined || Number(t.player_count) <= 0) return true;
-            
-            const statsArr = Array.isArray(t.player_stats) ? t.player_stats : [];
-            const playersArr = Array.isArray(t.players) ? t.players : [];
-            const combinedPlayers = statsArr.length > 0 ? statsArr : playersArr;
-            
-            if (combinedPlayers.length === 0) return true;
-
-            const realPlayers = combinedPlayers.filter((p: any) => {
-              const pId = String(p?.id || '');
-              return !pId.startsWith('patron_') && !pId.startsWith('bot_') && pId !== '';
-            });
-            if (realPlayers.length === 0) return true;
-
+            if (t.expires_at && new Date(t.expires_at).getTime() < nowMs) return true;
             return false;
           })
           .map((t) => t.id);
 
-        if (redundantIds.length > 0) {
+        if (expiredIds.length > 0) {
           await supabase
             .from('game_tables')
             .update({ status: 'closed', player_count: 0, players: [], player_stats: [] })
-            .in('id', redundantIds);
+            .in('id', expiredIds);
 
           const { data: deletedRows } = await supabase
             .from('game_tables')
             .delete()
-            .in('id', redundantIds)
+            .in('id', expiredIds)
             .select('id');
 
           if (deletedRows) {
             purged += deletedRows.length;
           } else {
-            purged += redundantIds.length;
+            purged += expiredIds.length;
           }
         }
-      }
-
-      // Direct deletion fallback
-      const { data } = await supabase
-        .from('game_tables')
-        .delete()
-        .or('player_count.lte.0,status.eq.closed,player_count.is.null')
-        .select('id');
-
-      if (data) {
-        purged += data.length;
       }
 
       // Remove legacy royal table
@@ -427,7 +445,7 @@ export async function deleteZeroPlayerTablesFromSupabase(): Promise<number> {
   } catch {}
 
   if (purged > 0) {
-    console.log(`[TableService] Purged ${purged} zero-player/redundant tables from Supabase.`);
+    console.log(`[TableService] Purged ${purged} expired tables from Supabase.`);
   }
   return purged;
 }
@@ -604,11 +622,12 @@ export async function fetchRunningTablesFromSupabase(): Promise<{
       return { success: false, tables: [], error: error.message };
     }
 
+    const nowMs = Date.now();
     const publicTables = ((data as GameTableRecord[]) || []).filter(
       (t) =>
         !t.is_private &&
         t.status !== 'closed' &&
-        (t.player_count || 0) > 0 &&
+        (!t.expires_at || new Date(t.expires_at).getTime() > nowMs) &&
         t.id !== 'public-royal-table' &&
         t.code !== 'ROYAL1' &&
         t.host_id !== 'system'
@@ -620,3 +639,137 @@ export async function fetchRunningTablesFromSupabase(): Promise<{
     return { success: false, tables: [], error: err?.message };
   }
 }
+
+/**
+ * Fetches all active & saved tables created by a specific user from server and Supabase game_tables.
+ * Automatically filters out expired tables.
+ */
+export async function fetchUserCreatedTablesFromSupabase(userId: string): Promise<{
+  success: boolean;
+  tables: GameTableRecord[];
+  error?: string;
+}> {
+  if (!userId) {
+    return { success: false, tables: [] };
+  }
+
+  const tablesMap = new Map<string, GameTableRecord>();
+  const nowMs = Date.now();
+
+  // 1. Fetch from server API (includes both GameEngine in-memory rooms and Supabase tables)
+  try {
+    const apiRes = await fetch(`/api/user/${encodeURIComponent(userId)}/tables`, { cache: 'no-store' });
+    if (apiRes.ok) {
+      const data = await apiRes.json();
+      if (data.success && Array.isArray(data.tables)) {
+        for (const t of data.tables) {
+          if (t && t.id) {
+            tablesMap.set(t.id, t as GameTableRecord);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[TableService] Server user tables fetch notice:', err);
+  }
+
+  // 2. Fallback / supplementary direct query to Supabase
+  if (isSupabaseConfigured() && supabase) {
+    try {
+      const { data: dbTables, error } = await supabase
+        .from('game_tables')
+        .select('*')
+        .eq('host_id', userId)
+        .neq('status', 'closed')
+        .order('created_at', { ascending: false });
+
+      if (!error && Array.isArray(dbTables)) {
+        for (const t of dbTables) {
+          if (t && t.id) {
+            if (t.expires_at && new Date(t.expires_at).getTime() < nowMs) {
+              deleteTableFromSupabase(t.id).catch(() => {});
+              continue;
+            }
+            if (!tablesMap.has(t.id)) {
+              tablesMap.set(t.id, t as GameTableRecord);
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn('[TableService] fetchUserCreatedTablesFromSupabase direct query exception:', err);
+    }
+  }
+
+  const activeTables = Array.from(tablesMap.values());
+  return { success: true, tables: activeTables };
+}
+
+/**
+ * Sends a table creation approval request to all Admins with specified table options & hours.
+ */
+export async function requestTableCreationApproval(params: {
+  userId: string;
+  username: string;
+  tableName?: string;
+  isPrivate?: boolean;
+  bettingDuration?: number;
+  validityHours?: number;
+}): Promise<{ success: boolean; message?: string; request?: any }> {
+  try {
+    const res = await fetch('/api/tables/request-approval', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    const data = await res.json();
+    return { success: data.success ?? true, message: data.message, request: data.request };
+  } catch (err: any) {
+    return { success: true, message: 'Request sent to Administrator!' };
+  }
+}
+
+/**
+ * Fetches pending table creation requests for Admin review.
+ */
+export async function fetchPendingTableRequests(): Promise<{
+  success: boolean;
+  requests: any[];
+  error?: string;
+}> {
+  try {
+    const res = await fetch('/api/admin/table-requests', { cache: 'no-store' });
+    const data = await res.json();
+    if (data.success && Array.isArray(data.requests)) {
+      return { success: true, requests: data.requests };
+    }
+    return { success: false, requests: [], error: data.error };
+  } catch (err: any) {
+    return { success: false, requests: [], error: err?.message };
+  }
+}
+
+/**
+ * Admin decides on a pending table request (Approve or Decline) with custom message & duration.
+ */
+export async function decideTableRequest(params: {
+  requestId: string;
+  decision: 'approve' | 'decline';
+  adminId: string;
+  adminName: string;
+  adminMessage?: string;
+  validityHours?: number;
+}): Promise<{ success: boolean; message: string; table?: any }> {
+  try {
+    const res = await fetch(`/api/admin/table-requests/${params.requestId}/decision`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    const data = await res.json();
+    return { success: data.success ?? false, message: data.message || '', table: data.table };
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Network error processing decision' };
+  }
+}
+

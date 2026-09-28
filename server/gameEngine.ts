@@ -65,34 +65,29 @@ export class GameEngine {
       const now = Date.now();
 
       for (const [id, r] of this.rooms.entries()) {
-        const realPlayers = Object.values(r.players || {}).filter(
-          (p) => !p.id.startsWith('patron_') && !p.id.startsWith('bot_') && !p.isDisconnected
-        );
+        const expiresMs = r.expiresAt ? (typeof r.expiresAt === 'number' ? r.expiresAt : new Date(r.expiresAt).getTime()) : 0;
+        const isExpired = expiresMs > 0 && now >= expiresMs;
 
-        // Check if room has 0 active human players or is abandoned (>30 min inactive)
-        const isIdleOrAbandoned =
-          realPlayers.length === 0 ||
-          (r.tableStats && now - (r.lastResult?.timestamp || 0) > 30 * 60 * 1000 && realPlayers.length === 0);
-
-        if (isIdleOrAbandoned) {
+        if (isExpired) {
           this.destroyRoom(id);
+          deleteTableFromSupabase(id).catch(() => {});
           purgedMemoryCount++;
         } else {
           activeIdsWithRealPlayers.push(id);
         }
       }
 
-      // Purge 0-player and orphaned tables in Supabase
+      // Purge expired tables in Supabase
       const purgedSupabase = await deleteZeroPlayerTablesFromSupabase(activeIdsWithRealPlayers);
 
       console.log(
-        `[Server GC] 5-Minute Garbage Collector executed. Cleaned up ${purgedMemoryCount} memory rooms, ${purgedSupabase} Supabase rows. Active rooms: ${activeIdsWithRealPlayers.length}.`
+        `[Server GC] 5-Minute Garbage Collector executed. Cleaned up ${purgedMemoryCount} expired memory rooms, ${purgedSupabase} expired Supabase rows. Active unexpired rooms: ${this.rooms.size}.`
       );
 
       return {
         purgedMemoryRooms: purgedMemoryCount,
         purgedSupabaseTables: purgedSupabase,
-        activeRoomsRemaining: activeIdsWithRealPlayers.length,
+        activeRoomsRemaining: this.rooms.size,
         timestamp: new Date().toISOString(),
       };
     } catch (err) {
@@ -120,16 +115,16 @@ export class GameEngine {
     try {
       const records = await fetchActiveTablesFromSupabase();
       if (records && records.length > 0) {
+        const now = Date.now();
         for (const rec of records) {
-          // Immediately purge tables with 0 or negative players, status closed, or legacy lobby
-          if ((rec.player_count || 0) <= 0 || rec.status === 'closed' || rec.id === 'public-royal-table') {
+          // Immediately purge tables that are already expired or explicitly closed
+          const isExpired = rec.expires_at ? new Date(rec.expires_at).getTime() <= now : false;
+          if (isExpired || rec.status === 'closed' || rec.id === 'public-royal-table') {
             deleteTableFromSupabase(rec.id).catch(() => {});
             continue;
           }
           if (!this.rooms.has(rec.id)) {
             this.instantiateRoomFromRecord(rec);
-            // Grant a 10-minute grace period for empty restored tables
-            this.scheduleRoomCleanup(rec.id, 10 * 60 * 1000);
           }
         }
       }
@@ -212,6 +207,9 @@ export class GameEngine {
     }
 
     const now = Date.now();
+    const validityDays = record.validity_days || 7;
+    const expiresAt = record.expires_at || new Date(now + validityDays * 24 * 60 * 60 * 1000).toISOString();
+
     const room: RoomState = {
       id: record.id,
       code: record.code.toUpperCase(),
@@ -223,6 +221,10 @@ export class GameEngine {
       timer: settings.bettingDuration,
       phaseStartedAt: record.status === 'waiting' ? undefined : now,
       phaseEndsAt: record.status === 'waiting' ? undefined : now + (settings.bettingDuration * 1000),
+      expiresAt,
+      expires_at: expiresAt,
+      validityDays,
+      validity_days: validityDays,
       dice: ['burja', 'jhanda', 'burja', 'itta', 'paan', 'chidi'],
       roundNumber: (record.table_stats?.totalRounds || 0) + 1,
       players: restoredPlayers,
@@ -288,12 +290,16 @@ export class GameEngine {
 
   public getPublicRooms(): { id: string; name: string; code: string; playerCount: number; phase: string; timer: number }[] {
     const list: { id: string; name: string; code: string; playerCount: number; phase: string; timer: number }[] = [];
+    const now = Date.now();
     for (const r of this.rooms.values()) {
-      // Only show actual tables with real active human players connected
+      const expiresMs = r.expiresAt ? (typeof r.expiresAt === 'number' ? r.expiresAt : new Date(r.expiresAt).getTime()) : 0;
+      const isExpired = expiresMs > 0 && now >= expiresMs;
+      if (isExpired) continue;
+
       const realPlayers = Object.values(r.players || {}).filter(
         (p) => !p.id.startsWith('patron_') && !p.id.startsWith('bot_')
       );
-      if (!r.isPrivate && realPlayers.length > 0) {
+      if (!r.isPrivate) {
         list.push({
           id: r.id,
           name: r.name,
@@ -330,7 +336,9 @@ export class GameEngine {
     hostUser: { id: string; username: string; avatar: string; coins: number; equipped: any },
     name: string,
     isPrivate: boolean,
-    customSettings?: Partial<RoomSettings>
+    customSettings?: Partial<RoomSettings>,
+    validityHoursOrDays: number = 24,
+    isHours: boolean = true
   ): RoomState {
     // Ensure the host is cleanly removed from any other table they might have been in
     for (const [otherRoomId, otherRoom] of this.rooms.entries()) {
@@ -345,13 +353,17 @@ export class GameEngine {
     const settings: RoomSettings = {
       minBet: customSettings?.minBet || 10,
       maxBet: customSettings?.maxBet || 25000,
-      bettingDuration: customSettings?.bettingDuration || 18,
+      bettingDuration: customSettings?.bettingDuration || 20,
       payoutDuration: customSettings?.payoutDuration || 6,
       autoLoop: customSettings?.autoLoop ?? true,
       payoutMultiplierType: customSettings?.payoutMultiplierType || 'traditional',
     };
 
     const now = Date.now();
+    const effectiveHours = isHours ? Math.max(1, validityHoursOrDays) : Math.max(1, validityHoursOrDays * 24);
+    const effectiveDays = Math.max(1, Math.ceil(effectiveHours / 24));
+    const expiresAt = new Date(now + effectiveHours * 60 * 60 * 1000).toISOString();
+
     const room: RoomState = {
       id: roomId,
       code,
@@ -363,6 +375,11 @@ export class GameEngine {
       timer: settings.bettingDuration,
       phaseStartedAt: undefined,
       phaseEndsAt: now + (settings.bettingDuration * 1000),
+      expiresAt,
+      expires_at: expiresAt,
+      validityDays: effectiveDays,
+      validity_days: effectiveDays,
+      validityHours: effectiveHours,
       dice: ['burja', 'jhanda', 'itta', 'paan', 'hukum', 'chidi'],
       roundNumber: 1,
       players: {},
@@ -569,10 +586,27 @@ export class GameEngine {
     );
     const remainingPlayerIds = remainingRealPlayers.map((p) => p.id);
 
-    // If no real players remain at the table (0 real players), prune and destroy table immediately!
+    // If no real players remain at the table (0 real players), check if table duration is expired
     if (remainingRealPlayers.length === 0) {
-      this.destroyRoom(roomId);
-      this.io.to(`room:${roomId}`).emit('room:player_left', { userId, roomState: room, tableClosed: true });
+      const now = Date.now();
+      const expiresMs = room.expiresAt ? (typeof room.expiresAt === 'number' ? room.expiresAt : new Date(room.expiresAt).getTime()) : 0;
+      const isExpired = expiresMs > 0 && now >= expiresMs;
+
+      if (isExpired) {
+        this.destroyRoom(roomId);
+        deleteTableFromSupabase(roomId).catch(() => {});
+        this.io.to(`room:${roomId}`).emit('room:player_left', { userId, roomState: room, tableClosed: true });
+        this.io.to(`room:${roomId}`).emit('room:disbanded', { reason: 'Table duration has expired.' });
+        return;
+      }
+
+      // Unexpired table remains alive! Set phase to 'waiting' and sync to Supabase
+      room.phase = 'waiting';
+      room.tableBets = { jhanda: 0, burja: 0, itta: 0, paan: 0, hukum: 0, chidi: 0 };
+      syncTableStateToSupabaseServer(room).catch((err) => {
+        console.warn('[GameEngine] Failed to sync updated table state to Supabase:', err);
+      });
+      this.io.to(`room:${roomId}`).emit('room:player_left', { userId, roomState: room, tableClosed: false });
       return;
     }
 
@@ -624,19 +658,7 @@ export class GameEngine {
         ).catch((err) => {
           console.warn('[GameEngine] Failed to sync new host to Supabase:', err);
         });
-      } else {
-        // Table owner left and 0 players remain: delete table immediately
-        this.destroyRoom(roomId);
-        this.io.to(`room:${roomId}`).emit('room:player_left', { userId, roomState: room });
-        return;
       }
-    }
-
-    // If all players left (0 players remain), delete table row in Supabase and destroy room immediately
-    if (remainingPlayerIds.length === 0) {
-      this.destroyRoom(roomId);
-      this.io.to(`room:${roomId}`).emit('room:player_left', { userId, roomState: room });
-      return;
     }
 
     // Sync updated player count in Supabase
@@ -983,9 +1005,24 @@ export class GameEngine {
         return;
       }
 
-      // If room has 0 players, prune and destroy table immediately
+      // Check if table validity has expired (timed in hours / days)
+      if (room.expiresAt) {
+        const expiresMs = typeof room.expiresAt === 'number' ? room.expiresAt : new Date(room.expiresAt).getTime();
+        if (Date.now() >= expiresMs) {
+          console.log(`[GameEngine] Table ${roomId} (${room.name}) timed validity expired. Deleting table.`);
+          this.io.to(`room:${roomId}`).emit('room:disbanded', { reason: 'Table duration has expired.' });
+          this.destroyRoom(roomId);
+          deleteTableFromSupabase(roomId).catch(() => {});
+          return;
+        }
+      }
+
+      // If room has 0 players, keep room alive in 'waiting' phase until time expires
       if (!room.players || Object.keys(room.players).length === 0) {
-        this.destroyRoom(roomId);
+        if (room.phase !== 'waiting') {
+          room.phase = 'waiting';
+          room.tableBets = { jhanda: 0, burja: 0, itta: 0, paan: 0, hukum: 0, chidi: 0 };
+        }
         return;
       }
 

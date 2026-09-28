@@ -17,6 +17,8 @@ create table if not exists public.profiles (
   username text not null default 'Festival Player',
   avatar text default '🎲',
   coins bigint default 5000,
+  coin_history jsonb default '[]'::jsonb,
+  notifications jsonb default '[]'::jsonb,
   stats jsonb default '{
     "gamesPlayed": 0,
     "gamesWon": 0,
@@ -35,9 +37,17 @@ create table if not exists public.profiles (
 -- 2. Add new columns to your existing table if they don't exist yet
 alter table public.profiles add column if not exists email text;
 alter table public.profiles add column if not exists is_admin boolean default false;
+alter table public.profiles add column if not exists can_create_table boolean default false;
+alter table public.profiles add column if not exists table_permission_expires_at timestamptz;
+alter table public.profiles add column if not exists table_validity_days int default 7;
 alter table public.profiles add column if not exists avatar text default '🎲';
+alter table public.profiles add column if not exists coin_history jsonb default '[]'::jsonb;
+alter table public.profiles add column if not exists notifications jsonb default '[]'::jsonb;
 alter table public.profiles add column if not exists stats jsonb default '{"gamesPlayed": 0, "gamesWon": 0, "totalWinnings": 0, "biggestWin": 0, "equipped": {"diceSkin": "dice_classic", "tableMat": "mat_velvet_green", "title": "Dice Novice"}, "inventory": ["dice_classic", "mat_velvet_green", "title_novice"]}'::jsonb;
 alter table public.profiles add column if not exists updated_at timestamptz default now();
+
+-- Clean up: Remove created_tables column from profiles table (tables are stored exclusively in game_tables)
+alter table public.profiles drop column if exists created_tables;
 
 -- 3. If id column is uuid, alter it to text so all authentication IDs are supported
 do $$
@@ -118,7 +128,7 @@ create policy "Enable update for all" on public.profiles for update using (true)
 create or replace function public.handle_new_user()
 returns trigger as $$
 begin
-  insert into public.profiles (id, email, username, avatar, coins, stats, updated_at)
+  insert into public.profiles (id, email, username, avatar, coins, notifications, stats, updated_at)
   values (
     new.id::text,
     new.email,
@@ -135,6 +145,7 @@ begin
       '🎲'
     ),
     5000,
+    '[]'::jsonb,
     jsonb_build_object(
       'gamesPlayed', 0,
       'gamesWon', 0,
@@ -164,7 +175,7 @@ create trigger on_auth_user_created
   for each row execute procedure public.handle_new_user();
 
 -- 9. Backfill all existing Google accounts currently in auth.users into public.profiles!
-insert into public.profiles (id, email, username, avatar, coins, stats, updated_at)
+insert into public.profiles (id, email, username, avatar, coins, notifications, stats, updated_at)
 select
   u.id::text,
   u.email,
@@ -181,6 +192,7 @@ select
     '🎲'
   ) as avatar,
   5000 as coins,
+  '[]'::jsonb as notifications,
   jsonb_build_object(
     'gamesPlayed', 0,
     'gamesWon', 0,
@@ -224,23 +236,88 @@ create table if not exists public.game_tables (
   id text primary key,
   code text not null unique,
   name text not null,
+  leader_id text,
+  leader_name text,
   host_id text not null,
   host_name text not null,
+  approved boolean default false,
+  approval_status text default 'pending',
+  approved_by_admin_id text,
+  approved_by_admin_name text,
+  admin_approval_message text,
+  approved_at timestamptz,
   is_private boolean default false,
-  betting_duration int default 18,
-  player_count int default 1,
+  betting_duration int default 20,
+  player_count int default 0,
   status text default 'waiting',
   player_stats jsonb default '[]'::jsonb,
   history jsonb default '[]'::jsonb,
   table_stats jsonb default '{"totalRounds": 0, "totalBets": 0, "totalPayouts": 0}'::jsonb,
+  expires_at timestamptz,
+  validity_hours int default 24,
+  validity_days numeric default 1,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
 
 -- Ensure all columns exist for existing databases
+alter table public.game_tables add column if not exists approved boolean default false;
+alter table public.game_tables add column if not exists approval_status text default 'pending';
+alter table public.game_tables add column if not exists leader_id text;
+alter table public.game_tables add column if not exists leader_name text;
+alter table public.game_tables add column if not exists approved_by_admin_id text;
+alter table public.game_tables add column if not exists approved_by_admin_name text;
+alter table public.game_tables add column if not exists admin_approval_message text;
+alter table public.game_tables add column if not exists approved_at timestamptz;
 alter table public.game_tables add column if not exists player_stats jsonb default '[]'::jsonb;
 alter table public.game_tables add column if not exists history jsonb default '[]'::jsonb;
 alter table public.game_tables add column if not exists table_stats jsonb default '{"totalRounds": 0, "totalBets": 0, "totalPayouts": 0}'::jsonb;
+alter table public.game_tables add column if not exists expires_at timestamptz;
+alter table public.game_tables add column if not exists validity_hours int default 24;
+alter table public.game_tables add column if not exists validity_days numeric default 1;
+
+-- Backfill leader fields from host fields if empty
+update public.game_tables
+set leader_id = coalesce(leader_id, host_id),
+    leader_name = coalesce(leader_name, host_name)
+where leader_id is null;
+
+-- ============================================================================
+-- TABLE: public.table_requests (Admin Table Approval Workflow)
+-- ============================================================================
+create table if not exists public.table_requests (
+  id text primary key,
+  user_id text not null,
+  username text not null,
+  table_name text not null,
+  is_private boolean default false,
+  betting_duration int default 20,
+  validity_hours int default 24,
+  status text default 'pending', -- 'pending', 'approved', 'declined'
+  approved_by_admin_id text,
+  approved_by_admin_name text,
+  admin_message text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+alter table public.table_requests enable row level security;
+
+create policy "Allow all users to select table requests"
+  on public.table_requests for select
+  using (true);
+
+create policy "Allow all users to insert table requests"
+  on public.table_requests for insert
+  with check (true);
+
+create policy "Allow all users to update table requests"
+  on public.table_requests for update
+  using (true);
+
+create policy "Allow all users to delete table requests"
+  on public.table_requests for delete
+  using (true);
 
 -- Migration: if old bloated 'players' column exists, consolidate into compact 'player_stats'
 do $$

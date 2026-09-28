@@ -98,6 +98,20 @@ export const MAX_PLAYERS_PER_TABLE = 16;
 
 export type GamePhase = 'waiting' | 'betting' | 'rolling' | 'payout';
 
+export interface CreatedTableSummary {
+  id: string;
+  code: string;
+  name: string;
+  isPrivate: boolean;
+  bettingDuration: number;
+  createdAt: number;
+  expiresAt?: number | string;
+  validityHours?: number;
+  validityDays?: number;
+  playerCount?: number;
+  status?: string;
+}
+
 export interface UserProfile {
   id: string;
   username: string;
@@ -119,6 +133,15 @@ export interface UserProfile {
   isGuest?: boolean;
   isAdmin?: boolean;
   is_admin?: boolean;
+  canCreateTable?: boolean;
+  can_create_table?: boolean;
+  tableCreationStatus?: 'none' | 'pending' | 'approved' | 'rejected';
+  table_permission_expires_at?: string | number;
+  tablePermissionExpiresAt?: string | number;
+  table_validity_days?: number;
+  tableValidityDays?: number;
+  createdTables?: CreatedTableSummary[];
+  created_tables?: CreatedTableSummary[];
   authProvider?: 'google' | 'email' | 'guest';
   profileConfigured?: boolean;
   hasPassword?: boolean;
@@ -126,6 +149,7 @@ export interface UserProfile {
   googleAvatar?: string;
   coinHistory?: any[];
   coin_history?: any[];
+  notifications?: any[];
 }
 
 export interface PlayerSessionStats {
@@ -193,17 +217,51 @@ export interface RoundResultSummary {
   timestamp: number;
 }
 
+export interface TableApprovalRequest {
+  id: string;
+  userId: string;
+  username: string;
+  tableName: string;
+  isPrivate: boolean;
+  bettingDuration: number;
+  validityHours: number;
+  status: 'pending' | 'approved' | 'declined';
+  approvedByAdminId?: string;
+  approvedByAdminName?: string;
+  adminMessage?: string;
+  createdAt: number;
+  updatedAt?: number;
+}
+
 export interface RoomState {
   id: string;
   code: string;
   name: string;
+  leaderId?: string;
+  leaderName?: string;
+  leader_id?: string;
+  leader_name?: string;
   hostId: string;
+  approvedByAdminId?: string;
+  approvedByAdminName?: string;
+  approved_by_admin_id?: string;
+  approved_by_admin_name?: string;
+  adminApprovalMessage?: string;
+  admin_approval_message?: string;
+  approvedAt?: string;
+  approved_at?: string;
   isPrivate: boolean;
   settings: RoomSettings;
   phase: GamePhase;
   timer: number;
   phaseStartedAt?: number;
   phaseEndsAt?: number;
+  expiresAt?: string | number;
+  expires_at?: string;
+  validityHours?: number;
+  validity_hours?: number;
+  validityDays?: number;
+  validity_days?: number;
   dice: SymbolType[];
   roundNumber: number;
   players: Record<string, PlayerInRoom>;

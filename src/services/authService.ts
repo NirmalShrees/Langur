@@ -1,11 +1,171 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase.js';
 import { UserProfile } from '../types.js';
 import { CoinReceipt, getCoinReceipts, setCoinReceipts } from '../utils/coinHistory.js';
+import {
+  AppNotification,
+  fromSupabaseNotificationsJsonb,
+  toSupabaseNotificationsJsonb,
+  getStoredNotifications,
+  saveNotifications,
+} from '../utils/notifications.js';
 
 const LOCAL_STORAGE_KEY = 'langur_burja_user_profile';
 const GUEST_ID_KEY = 'langur_burja_uid';
 
 export { isSupabaseConfigured };
+
+/**
+ * Fetch notifications for a user from Supabase profiles.notifications column
+ */
+export async function fetchRemoteNotifications(userId: string): Promise<AppNotification[] | null> {
+  if (!supabase || !isSupabaseConfigured() || !userId) return null;
+  if (userId.startsWith('guest_')) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('notifications')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (error || !data) return null;
+
+    if (Array.isArray(data.notifications)) {
+      const parsed = fromSupabaseNotificationsJsonb(data.notifications);
+      saveNotifications(parsed);
+      return parsed;
+    }
+  } catch (e) {
+    console.warn('[Supabase] Failed to fetch remote notifications:', e);
+  }
+  return null;
+}
+
+/**
+ * Syncs notifications array to Supabase profiles.notifications column
+ * Uses both dedicated server endpoint (bypasses RLS) and client Supabase client for complete reliability.
+ */
+export async function syncNotificationsToSupabase(
+  userId: string,
+  notifications: AppNotification[]
+): Promise<{ success: boolean; error?: string }> {
+  saveNotifications(notifications);
+
+  if (!userId || userId.startsWith('guest_')) {
+    return { success: true };
+  }
+
+  // 1. Server-side authoritative update
+  try {
+    fetch('/api/user/notifications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, notifications }),
+    }).catch((e) => console.warn('[Server Notifications Sync Warning]', e));
+  } catch (err) {
+    // ignore
+  }
+
+  // 2. Client-side Supabase sync
+  if (!supabase || !isSupabaseConfigured()) {
+    return { success: true };
+  }
+
+  try {
+    const payload = toSupabaseNotificationsJsonb(notifications);
+    const { error } = await supabase
+      .from('profiles')
+      .update({
+        notifications: payload,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', userId);
+
+    if (error) {
+      if (error.message?.toLowerCase().includes('notifications') || error.code === 'PGRST204') {
+        return { success: true };
+      }
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (e: any) {
+    console.warn('[Supabase] Failed to sync notifications:', e);
+    return { success: false, error: e?.message || 'Failed syncing notifications' };
+  }
+}
+
+/**
+ * Explicitly deletes a single notification from Supabase
+ */
+export async function deleteNotificationFromSupabase(
+  userId: string,
+  notificationId: string,
+  remainingNotifications: AppNotification[]
+): Promise<void> {
+  saveNotifications(remainingNotifications);
+
+  if (!userId || userId.startsWith('guest_')) return;
+
+  // 1. Trigger backend server deletion
+  try {
+    fetch(`/api/user/notifications/${notificationId}?userId=${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+    }).catch((e) => console.warn('[Server Notification Delete Warning]', e));
+  } catch (e) {
+    // ignore
+  }
+
+  // 2. Client-side Supabase update
+  if (supabase && isSupabaseConfigured()) {
+    try {
+      const payload = toSupabaseNotificationsJsonb(remainingNotifications);
+      await supabase
+        .from('profiles')
+        .update({
+          notifications: payload,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', userId);
+    } catch (err) {
+      console.warn('[Supabase] deleteNotificationFromSupabase client error:', err);
+    }
+  }
+}
+
+/**
+ * Explicitly clears all notifications from Supabase
+ */
+export async function clearAllNotificationsFromSupabase(userId: string): Promise<void> {
+  saveNotifications([]);
+
+  if (!userId || userId.startsWith('guest_')) return;
+
+  // 1. Trigger backend server clear
+  try {
+    fetch('/api/user/notifications/clear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId }),
+    }).catch((e) => console.warn('[Server Notifications Clear Warning]', e));
+  } catch (e) {
+    // ignore
+  }
+
+  // 2. Client-side Supabase update
+  if (supabase && isSupabaseConfigured()) {
+    try {
+      await supabase
+        .from('profiles')
+        .update({
+          notifications: [],
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', userId);
+    } catch (err) {
+      console.warn('[Supabase] clearAllNotificationsFromSupabase client error:', err);
+    }
+  }
+}
 
 /**
  * Smoothly fetch only the coin history for a user from Supabase
@@ -129,8 +289,22 @@ export async function fetchRemoteProfile(userId: string): Promise<UserProfile | 
       setCoinReceipts(data.id, remoteCoinHistory);
     }
 
+    const remoteNotifications = Array.isArray(data.notifications)
+      ? fromSupabaseNotificationsJsonb(data.notifications)
+      : null;
+
+    if (remoteNotifications && remoteNotifications.length > 0) {
+      saveNotifications(remoteNotifications);
+    }
+
     const isSuperAdmin = cleanEmail ? cleanEmail === 'lamrinshrees@gmail.com' : false;
     const isAdmin = Boolean(data.is_admin === true || isSuperAdmin || rawStats.isAdmin === true);
+
+    // Check table creation permissions (Strict table approval required for all users including admins)
+    const rawCanCreate = data.can_create_table ?? rawStats.canCreateTable ?? false;
+    const permExpiry = data.table_permission_expires_at ?? rawStats.tablePermissionExpiresAt;
+    const isPermExpired = permExpiry ? new Date(permExpiry).getTime() < Date.now() : false;
+    const canCreateTable = Boolean(rawCanCreate && !isPermExpired);
 
     return {
       id: data.id,
@@ -144,6 +318,12 @@ export async function fetchRemoteProfile(userId: string): Promise<UserProfile | 
       biggestWin: data.biggest_win ?? rawStats.biggestWin ?? 0,
       isAdmin,
       is_admin: isAdmin,
+      canCreateTable,
+      can_create_table: canCreateTable,
+      table_permission_expires_at: permExpiry,
+      tablePermissionExpiresAt: permExpiry,
+      table_validity_days: data.table_validity_days ?? rawStats.tableValidityDays ?? 7,
+      tableValidityDays: data.table_validity_days ?? rawStats.tableValidityDays ?? 7,
       inventory: Array.isArray(data.inventory)
         ? data.inventory
         : (Array.isArray(rawStats.inventory) ? rawStats.inventory : ['dice_classic', 'mat_velvet_green', 'title_novice']),
@@ -158,6 +338,7 @@ export async function fetchRemoteProfile(userId: string): Promise<UserProfile | 
       hasPassword,
       coinHistory: remoteCoinHistory || getCoinReceipts(data.id),
       coin_history: remoteCoinHistory || getCoinReceipts(data.id),
+      notifications: remoteNotifications || getStoredNotifications(),
     };
   } catch (err) {
     console.warn('[Supabase] Failed to fetch remote profile:', err);
@@ -230,6 +411,9 @@ export async function syncProfileToSupabase(profile: UserProfile): Promise<{ suc
       coins: typeof profile.coins === 'number' ? profile.coins : 5000,
       coin_history: historyList,
       stats: mergedStats,
+      can_create_table: Boolean(profile.canCreateTable ?? profile.can_create_table),
+      table_permission_expires_at: profile.tablePermissionExpiresAt ?? profile.table_permission_expires_at,
+      table_validity_days: profile.tableValidityDays ?? profile.table_validity_days ?? 7,
       updated_at: new Date().toISOString(),
     };
 
@@ -239,7 +423,14 @@ export async function syncProfileToSupabase(profile: UserProfile): Promise<{ suc
 
     let { error } = await supabase.from('profiles').upsert(mergedPayload, { onConflict: 'id' });
 
-    // Fallback 0: If 'coin_history' column does not exist yet in table, remove from top-level and retry (saved in stats JSONB)
+    // Fallback 0: If 'notifications' column does not exist yet in table, remove from top-level and retry
+    if (error && (error.message?.toLowerCase().includes('notifications') || error.code === 'PGRST204')) {
+      delete mergedPayload.notifications;
+      const res = await supabase.from('profiles').upsert(mergedPayload, { onConflict: 'id' });
+      error = res.error;
+    }
+
+    // Fallback 0.5: If 'coin_history' column does not exist yet in table, remove from top-level and retry (saved in stats JSONB)
     if (error && (error.message?.toLowerCase().includes('coin_history') || error.code === 'PGRST204')) {
       delete mergedPayload.coin_history;
       const res = await supabase.from('profiles').upsert(mergedPayload, { onConflict: 'id' });

@@ -1,0 +1,114 @@
+{
+  "users": {
+    "seed-1": {
+      "id": "seed-1",
+      "username": "Rajesh_Maharajah",
+      "avatar": "🦁",
+      "coins": 84200,
+      "totalWinnings": 142000,
+      "gamesPlayed": 148,
+      "gamesWon": 89,
+      "biggestWin": 24000,
+      "inventory": [
+        "dice_classic",
+        "dice_gold",
+        "mat_velvet_green",
+        "mat_crimson_luxury",
+        "title_burja_king"
+      ],
+      "equipped": {
+        "diceSkin": "dice_gold",
+        "tableMat": "mat_crimson_luxury",
+        "title": "Burja King 👑"
+      },
+      "createdAt": 1790165516531
+    },
+    "seed-2": {
+      "id": "seed-2",
+      "username": "Aayush_Roller",
+      "avatar": "⚡",
+      "coins": 56400,
+      "totalWinnings": 98500,
+      "gamesPlayed": 112,
+      "gamesWon": 67,
+      "biggestWin": 16000,
+      "inventory": [
+        "dice_classic",
+        "dice_neon",
+        "mat_midnight_gold",
+        "title_high_roller"
+      ],
+      "equipped": {
+        "diceSkin": "dice_neon",
+        "tableMat": "mat_midnight_gold",
+        "title": "High Roller 💰"
+      },
+      "createdAt": 1790251916531
+    },
+    "seed-3": {
+      "id": "seed-3",
+      "username": "Pooja_Sharma",
+      "avatar": "🌸",
+      "coins": 43200,
+      "totalWinnings": 75200,
+      "gamesPlayed": 94,
+      "gamesWon": 53,
+      "biggestWin": 12500,
+      "inventory": [
+        "dice_classic",
+        "mat_velvet_green",
+        "title_lucky_charm"
+      ],
+      "equipped": {
+        "diceSkin": "dice_classic",
+        "tableMat": "mat_velvet_green",
+        "title": "Lucky Charm 🍀"
+      },
+      "createdAt": 1790338316531
+    },
+    "seed-4": {
+      "id": "seed-4",
+      "username": "Bikram_Kathmandu",
+      "avatar": "🦅",
+      "coins": 31900,
+      "totalWinnings": 58000,
+      "gamesPlayed": 78,
+      "gamesWon": 41,
+      "biggestWin": 9000,
+      "inventory": [
+        "dice_classic",
+        "dice_crimson",
+        "mat_velvet_green",
+        "title_novice"
+      ],
+      "equipped": {
+        "diceSkin": "dice_crimson",
+        "tableMat": "mat_velvet_green",
+        "title": "Dice Novice"
+      },
+      "createdAt": 1790424716531
+    },
+    "guest_mul7jqfg_n81f9": {
+      "id": "guest_mul7jqfg_n81f9",
+      "username": "Player_8124",
+      "avatar": "🎲",
+      "coins": 5000,
+      "totalWinnings": 0,
+      "gamesPlayed": 0,
+      "gamesWon": 0,
+      "biggestWin": 0,
+      "inventory": [
+        "dice_classic",
+        "mat_velvet_green",
+        "title_novice"
+      ],
+      "equipped": {
+        "diceSkin": "dice_classic",
+        "tableMat": "mat_velvet_green",
+        "title": "Dice Novice"
+      },
+      "createdAt": 1790597546549
+    }
+  },
+  "auditLog": []
+}
