@@ -306,6 +306,14 @@ export class GameEngine {
       id: record.id,
       code: record.code.toUpperCase(),
       name: record.name || "Friend's Table",
+      creatorId: record.host_id,
+      creatorName: record.host_name,
+      creator_id: record.host_id,
+      creator_name: record.host_name,
+      leaderId: record.host_id,
+      leaderName: record.host_name,
+      leader_id: record.host_id,
+      leader_name: record.host_name,
       hostId: record.host_id,
       isPrivate: record.is_private ?? false,
       settings,
@@ -390,6 +398,15 @@ export class GameEngine {
       const isExpired = expiresMs > 0 && now >= expiresMs;
       if (isExpired) continue;
 
+      // Approved user-created custom tables must NOT be shown in the public Available Tables browser (joined via Table Code only)
+      const isApprovedCustomTable = Boolean(
+        r.id !== 'public-royal-table' &&
+        (r.creatorId || r.creator_id || r.approvedByAdminId || r.approved_by_admin_id || r.leaderId || r.leader_id)
+      );
+      if (isApprovedCustomTable) {
+        continue;
+      }
+
       const realPlayers = Object.values(r.players || {}).filter(
         (p) => !p.id.startsWith('patron_') && !p.id.startsWith('bot_')
       );
@@ -465,6 +482,14 @@ export class GameEngine {
       id: roomId,
       code,
       name: name.trim() || `${hostUser.username}'s Arena`,
+      creatorId: hostUser.id,
+      creatorName: hostUser.username,
+      creator_id: hostUser.id,
+      creator_name: hostUser.username,
+      leaderId: hostUser.id,
+      leaderName: hostUser.username,
+      leader_id: hostUser.id,
+      leader_name: hostUser.username,
       hostId: hostUser.id,
       isPrivate,
       settings,
@@ -566,18 +591,37 @@ export class GameEngine {
       (p) => p.id !== user.id && !p.id.startsWith('patron_') && !p.id.startsWith('bot_') && p.id !== 'system_host' && p.id !== 'system'
     );
 
-    // If joining the default public table or a room where host is system/absent,
-    // and there are no other real human players present, make this user the leader/host!
-    const shouldBeHost =
-      otherRealPlayers.length === 0 &&
-      (room.id === 'public-royal-table' ||
-        room.code === 'ROYAL1' ||
-        room.hostId === 'system_host' ||
-        room.hostId === 'system' ||
-        !room.players[room.hostId]);
+    // Check if the joining user is the authentic creator/owner of this table:
+    const isAuthenticCreator = Boolean(
+      (room.creatorId && user.id === room.creatorId) ||
+      (room.creator_id && user.id === room.creator_id) ||
+      (room.leaderId && user.id === room.leaderId) ||
+      (room.leader_id && user.id === room.leader_id)
+    );
 
-    if (shouldBeHost) {
+    let shouldBeHost = false;
+
+    if (isAuthenticCreator) {
+      // 1. Table Creator (PlayerA) enters their table -> ALWAYS becomes/reclaims the Leader!
+      shouldBeHost = true;
       room.hostId = user.id;
+
+      // Automatically demote any other player who was temporarily acting as host (PlayerB) to just player
+      for (const [pId, p] of Object.entries(room.players)) {
+        if (pId !== user.id && p.isHost) {
+          p.isHost = false;
+        }
+      }
+    } else {
+      // 2. Joining someone else's approved table or public table:
+      if (otherRealPlayers.length === 0) {
+        // Table is empty of other real players: PlayerB becomes temporary host so they can play
+        shouldBeHost = true;
+        room.hostId = user.id;
+      } else {
+        // Other real players are already present (e.g. Creator or existing leader): PlayerB is demoted / regular player
+        shouldBeHost = room.hostId === user.id;
+      }
     }
 
     if (existingPlayer) {

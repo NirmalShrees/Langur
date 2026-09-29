@@ -217,6 +217,12 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   const [tables, setTables] = useState<TableAdminData[]>([]);
   const [tableRequests, setTableRequests] = useState<any[]>([]);
 
+  // Mobile Performance Pagination Limits
+  const [playersVisibleCount, setPlayersVisibleCount] = useState<number>(25);
+  const [tablesVisibleCount, setTablesVisibleCount] = useState<number>(12);
+  const lastTablesSignatureRef = React.useRef<string>('');
+  const lastPlayersSignatureRef = React.useRef<string>('');
+
   // Table Request Review State
   const [reviewingRequest, setReviewingRequest] = useState<any | null>(null);
   const [reviewHoursPreset, setReviewHoursPreset] = useState<'2h' | '6h' | '24h' | 'custom'>('24h');
@@ -310,10 +316,14 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   useEffect(() => {
     if (!socket || !isOpen) return;
 
-    // 1. Authoritative 1-second live tables synchronization
+    // 1. Authoritative 1-second live tables synchronization with smart signature diffing
     const handleLiveTablesSync = (payload: { tables: TableAdminData[] }) => {
       if (Array.isArray(payload?.tables)) {
-        setTables(payload.tables);
+        const sig = payload.tables.map((t) => `${t.id}:${t.phase}:${t.timer}:${t.roundNumber}:${t.playerCount}:${t.totalRoundBets}`).join('|');
+        if (sig !== lastTablesSignatureRef.current) {
+          lastTablesSignatureRef.current = sig;
+          setTables(payload.tables);
+        }
         // Instant sync for active God Mode Surveillance
         if (selectedGodTable) {
           const fresh = payload.tables.find((t) => t.id === selectedGodTable.id);
@@ -324,10 +334,14 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
       }
     };
 
-    // 2. Authoritative 2-second live players synchronization
+    // 2. Authoritative 2-second live players synchronization with smart signature diffing
     const handleLivePlayersSync = (payload: { players: PlayerAdminData[] }) => {
       if (Array.isArray(payload?.players)) {
-        setPlayers(payload.players);
+        const sig = payload.players.map((p) => `${p.id}:${p.coins}:${p.presence}:${p.isAdmin}:${p.canCreateTable}`).join('|');
+        if (sig !== lastPlayersSignatureRef.current) {
+          lastPlayersSignatureRef.current = sig;
+          setPlayers(payload.players);
+        }
         // Instant sync for active Coin Adjustment Panel
         if (selectedPlayer) {
           const fresh = payload.players.find((p) => p.id === selectedPlayer.id);
@@ -1128,119 +1142,134 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                 </button>
               </div>
 
-              {/* Player Cards List */}
+              {/* Player Cards List (Optimized for Mobile Performance) */}
               <div className="space-y-1.5">
                 {filteredPlayers.length === 0 ? (
                   <div className="py-8 text-center rounded-xl bg-slate-900/40 border border-slate-800/80 text-slate-400 text-xs">
                     No players found matching search.
                   </div>
                 ) : (
-                  filteredPlayers.map((player) => (
-                    <div
-                      key={player.id}
-                      className="p-2.5 sm:px-3.5 sm:py-2.5 rounded-xl bg-slate-900/70 border border-slate-800/80 hover:border-amber-500/30 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-sm"
-                    >
-                      {/* Left: Avatar, Username, Status, Info */}
-                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                        <div className="relative shrink-0">
-                          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-xs shadow border border-amber-300/40 overflow-hidden">
-                            <UserAvatar avatar={player.avatar} name={player.username} size="sm" className="w-full h-full rounded-none" />
+                  <>
+                    {filteredPlayers.slice(0, playersVisibleCount).map((player) => (
+                      <div
+                        key={player.id}
+                        className="p-2.5 sm:px-3.5 sm:py-2.5 rounded-xl bg-slate-900/70 border border-slate-800/80 hover:border-amber-500/30 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-sm"
+                      >
+                        {/* Left: Avatar, Username, Status, Info */}
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                          <div className="relative shrink-0">
+                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-xs shadow border border-amber-300/40 overflow-hidden">
+                              <UserAvatar avatar={player.avatar} name={player.username} size="sm" className="w-full h-full rounded-none" />
+                            </div>
+                            <span
+                              className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border border-slate-950 ${
+                                player.presence === 'in_table'
+                                  ? 'bg-emerald-400 animate-pulse'
+                                  : player.presence === 'online'
+                                  ? 'bg-amber-400'
+                                  : 'bg-slate-600'
+                              }`}
+                            />
                           </div>
-                          <span
-                            className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border border-slate-950 ${
-                              player.presence === 'in_table'
-                                ? 'bg-emerald-400 animate-pulse'
-                                : player.presence === 'online'
-                                ? 'bg-amber-400'
-                                : 'bg-slate-600'
-                            }`}
-                          />
+
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-serif font-bold text-xs sm:text-sm text-amber-200 truncate">
+                                {player.username}
+                              </span>
+                              {player.isAdmin && (
+                                <span className="text-[8px] px-1.5 py-0.2 rounded font-mono font-bold bg-purple-500/20 text-purple-300 border border-purple-400/30 flex items-center gap-0.5">
+                                  <Crown className="w-2 h-2 text-purple-300" />
+                                  ADMIN
+                                </span>
+                              )}
+                              {player.canCreateTable && (
+                                <span className="text-[8px] px-1.5 py-0.2 rounded font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 flex items-center gap-0.5" title={`Table Host Approved (${player.tableValidityDays || 7} days validity)`}>
+                                  👑 HOST ({player.tableValidityDays || 7}d)
+                                </span>
+                              )}
+                              {player.id === currentUser.id && (
+                                <span className="text-[8px] px-1.5 py-0.2 rounded font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                  YOU
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-1.5 text-[9.5px] text-slate-400 font-mono truncate mt-0.5">
+                              {player.email ? (
+                                <span className="text-amber-300/80 truncate max-w-[140px] sm:max-w-[200px]">{player.email}</span>
+                              ) : (
+                                <span className="text-slate-500">ID: {player.id.substring(0, 8)}...</span>
+                              )}
+                              {player.currentTable && (
+                                <span className="text-emerald-300 bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-500/20">
+                                  🎲 {player.currentTable.code}
+                                </span>
+                              )}
+                            </div>
+                          </div>
                         </div>
 
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="font-serif font-bold text-xs sm:text-sm text-amber-200 truncate">
-                              {player.username}
-                            </span>
-                            {player.isAdmin && (
-                              <span className="text-[8px] px-1.5 py-0.2 rounded font-mono font-bold bg-purple-500/20 text-purple-300 border border-purple-400/30 flex items-center gap-0.5">
-                                <Crown className="w-2 h-2 text-purple-300" />
-                                ADMIN
-                              </span>
-                            )}
-                            {player.canCreateTable && (
-                              <span className="text-[8px] px-1.5 py-0.2 rounded font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 flex items-center gap-0.5" title={`Table Host Approved (${player.tableValidityDays || 7} days validity)`}>
-                                👑 HOST ({player.tableValidityDays || 7}d)
-                              </span>
-                            )}
-                            {player.id === currentUser.id && (
-                              <span className="text-[8px] px-1.5 py-0.2 rounded font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                                YOU
-                              </span>
-                            )}
-                          </div>
-
-                          <div className="flex items-center gap-1.5 text-[9.5px] text-slate-400 font-mono truncate mt-0.5">
-                            {player.email ? (
-                              <span className="text-amber-300/80 truncate max-w-[140px] sm:max-w-[200px]">{player.email}</span>
-                            ) : (
-                              <span className="text-slate-500">ID: {player.id.substring(0, 8)}...</span>
-                            )}
-                            {player.currentTable && (
-                              <span className="text-emerald-300 bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-500/20">
-                                🎲 {player.currentTable.code}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Middle: Coin Balance Display */}
-                      <div className="flex items-center gap-2 shrink-0 bg-slate-950/70 px-2.5 py-1.5 rounded-xl border border-slate-800 text-[11px] font-mono">
-                        <Coins className="w-3.5 h-3.5 text-amber-400" />
-                        <span className="font-bold text-amber-300 text-xs sm:text-sm">
-                          {player.coins.toLocaleString()} 🪙
-                        </span>
-                        <span className="text-[9px] text-slate-500 border-l border-slate-800 pl-1.5 hidden xs:inline">
-                          W: {player.gamesWon} ({player.winRate}%)
-                        </span>
-                      </div>
-
-                      {/* Right: Admin Toggle & Coin Action Button */}
-                      <div className="flex items-center gap-1.5 shrink-0 flex-wrap sm:flex-nowrap">
-                        {/* Admin Privileges Toggle Button */}
-                        <button
-                          type="button"
-                          onClick={() => setAdminConfirmPlayer(player)}
-                          title={player.isAdmin ? 'Revoke Admin Privileges' : 'Grant Admin Privileges'}
-                          disabled={actionInProgress === player.id}
-                          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-[11px] font-mono font-bold transition-all active:scale-95 cursor-pointer shadow-sm ${
-                            player.isAdmin
-                              ? 'bg-purple-950/70 border-purple-500/60 text-purple-200 hover:bg-purple-900/70'
-                              : 'bg-slate-900/90 border-slate-700 text-slate-400 hover:text-purple-300 hover:border-purple-500/40'
-                          }`}
-                        >
-                          <ShieldCheck className={`w-3.5 h-3.5 ${player.isAdmin ? 'text-purple-300' : 'text-slate-400'}`} />
-                          <span>{player.isAdmin ? 'Admin' : 'Make Admin'}</span>
-                        </button>
-
-                        {/* Dedicated Coin Management Button that opens the Add/Deduct Panel */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedPlayer(player);
-                            setCoinInputAmount('25000');
-                            setCoinAdjustmentMode('grant');
-                            setCoinReason('Admin Treasury Grant');
-                          }}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500/20 to-amber-600/30 hover:from-amber-500/30 hover:to-amber-600/40 text-amber-300 border border-amber-500/40 text-xs font-mono font-bold active:scale-95 transition-all shadow-sm cursor-pointer"
-                        >
+                        {/* Middle: Coin Balance Display */}
+                        <div className="flex items-center gap-2 shrink-0 bg-slate-950/70 px-2.5 py-1.5 rounded-xl border border-slate-800 text-[11px] font-mono">
                           <Coins className="w-3.5 h-3.5 text-amber-400" />
-                          <span>Coins</span>
+                          <span className="font-bold text-amber-300 text-xs sm:text-sm">
+                            {player.coins.toLocaleString()} 🪙
+                          </span>
+                          <span className="text-[9px] text-slate-500 border-l border-slate-800 pl-1.5 hidden xs:inline">
+                            W: {player.gamesWon} ({player.winRate}%)
+                          </span>
+                        </div>
+
+                        {/* Right: Admin Toggle & Coin Action Button */}
+                        <div className="flex items-center gap-1.5 shrink-0 flex-wrap sm:flex-nowrap">
+                          {/* Admin Privileges Toggle Button */}
+                          <button
+                            type="button"
+                            onClick={() => setAdminConfirmPlayer(player)}
+                            title={player.isAdmin ? 'Revoke Admin Privileges' : 'Grant Admin Privileges'}
+                            disabled={actionInProgress === player.id}
+                            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-[11px] font-mono font-bold transition-all active:scale-95 cursor-pointer shadow-sm ${
+                              player.isAdmin
+                                ? 'bg-purple-950/70 border-purple-500/60 text-purple-200 hover:bg-purple-900/70'
+                                : 'bg-slate-900/90 border-slate-700 text-slate-400 hover:text-purple-300 hover:border-purple-500/40'
+                            }`}
+                          >
+                            <ShieldCheck className={`w-3.5 h-3.5 ${player.isAdmin ? 'text-purple-300' : 'text-slate-400'}`} />
+                            <span>{player.isAdmin ? 'Admin' : 'Make Admin'}</span>
+                          </button>
+
+                          {/* Dedicated Coin Management Button that opens the Add/Deduct Panel */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedPlayer(player);
+                              setCoinInputAmount('25000');
+                              setCoinAdjustmentMode('grant');
+                              setCoinReason('Admin Treasury Grant');
+                            }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500/20 to-amber-600/30 hover:from-amber-500/30 hover:to-amber-600/40 text-amber-300 border border-amber-500/40 text-xs font-mono font-bold active:scale-95 transition-all shadow-sm cursor-pointer"
+                          >
+                            <Coins className="w-3.5 h-3.5 text-amber-400" />
+                            <span>Coins</span>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Progressive Load More on Mobile */}
+                    {filteredPlayers.length > playersVisibleCount && (
+                      <div className="pt-2 text-center">
+                        <button
+                          type="button"
+                          onClick={() => setPlayersVisibleCount((prev) => prev + 25)}
+                          className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-300 border border-slate-700 text-xs font-mono font-bold transition-all active:scale-95 cursor-pointer shadow-sm"
+                        >
+                          Load More Players ({filteredPlayers.length - playersVisibleCount} remaining)
                         </button>
                       </div>
-                    </div>
-                  ))
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -1371,112 +1400,126 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                     <p className="text-[11px] text-slate-500">All redundant or closed tables have been purged.</p>
                   </div>
                 ) : (
-                  tables.map((t) => (
-                    <div
-                      key={t.id}
-                      className="p-3.5 rounded-2xl bg-gradient-to-b from-slate-900/95 via-slate-900/90 to-slate-950 border border-slate-800/90 hover:border-amber-500/35 shadow-xl shadow-black/60 space-y-3 transition-all flex flex-col justify-between"
-                    >
-                      {/* Combined Unified Top Section: Table Name, Info Button, Line 2 Badges (with Round #), & Integrated A-VAR Slider */}
-                      <div className="p-3 rounded-xl bg-gradient-to-r from-slate-950/95 via-slate-900/90 to-slate-950/95 border border-slate-800/80 space-y-2.5 shadow-inner">
-                        {/* Line 1: Table Name on Left, GOD & Info "i" Buttons on Right */}
-                        <div className="flex items-center justify-between gap-2">
-                          <h3 className="font-serif font-bold text-sm sm:text-base text-amber-200 truncate tracking-wide">
-                            {t.name}
-                          </h3>
+                  <>
+                    {tables.slice(0, tablesVisibleCount).map((t) => (
+                      <div
+                        key={t.id}
+                        className="p-3.5 rounded-2xl bg-gradient-to-b from-slate-900/95 via-slate-900/90 to-slate-950 border border-slate-800/90 hover:border-amber-500/35 shadow-xl shadow-black/60 space-y-3 transition-all flex flex-col justify-between"
+                      >
+                        {/* Combined Unified Top Section: Table Name, Info Button, Line 2 Badges (with Round #), & Integrated A-VAR Slider */}
+                        <div className="p-3 rounded-xl bg-gradient-to-r from-slate-950/95 via-slate-900/90 to-slate-950/95 border border-slate-800/80 space-y-2.5 shadow-inner">
+                          {/* Line 1: Table Name on Left, GOD & Info "i" Buttons on Right */}
+                          <div className="flex items-center justify-between gap-2">
+                            <h3 className="font-serif font-bold text-sm sm:text-base text-amber-200 truncate tracking-wide">
+                              {t.name}
+                            </h3>
 
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            {/* God Mode Surveillance Button */}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                sound.playWinFanfare();
-                                setCopiedGodCode(false);
-                                setSelectedGodTable(t);
-                              }}
-                              className="px-2 py-1 rounded-lg bg-gradient-to-r from-amber-500/25 via-purple-500/25 to-indigo-500/25 hover:from-amber-500/35 hover:via-purple-500/35 hover:to-indigo-500/35 text-amber-300 hover:text-amber-100 border border-amber-500/50 hover:border-amber-400 font-mono font-black text-[10.5px] transition-all cursor-pointer active:scale-95 shadow-sm flex items-center gap-1 group"
-                              title="God Mode: House Surveillance, Player Bets & Probability Matrix"
-                            >
-                              <Zap className="w-3 h-3 text-amber-400 fill-amber-400/30 group-hover:scale-110 transition-transform" />
-                              <span className="tracking-wider">GOD</span>
-                            </button>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {/* God Mode Surveillance Button */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  sound.playWinFanfare();
+                                  setCopiedGodCode(false);
+                                  setSelectedGodTable(t);
+                                }}
+                                className="px-2 py-1 rounded-lg bg-gradient-to-r from-amber-500/25 via-purple-500/25 to-indigo-500/25 hover:from-amber-500/35 hover:via-purple-500/35 hover:to-indigo-500/35 text-amber-300 hover:text-amber-100 border border-amber-500/50 hover:border-amber-400 font-mono font-black text-[10.5px] transition-all cursor-pointer active:scale-95 shadow-sm flex items-center gap-1 group"
+                                title="God Mode: House Surveillance, Player Bets & Probability Matrix"
+                              >
+                                <Zap className="w-3 h-3 text-amber-400 fill-amber-400/30 group-hover:scale-110 transition-transform" />
+                                <span className="tracking-wider">GOD</span>
+                              </button>
 
-                            {/* Info Details Button */}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                sound.playChipSound();
-                                setCopiedDetailsCode(false);
-                                setSelectedTableDetails(t);
-                              }}
-                              className="p-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-amber-300 border border-slate-700/60 transition-all cursor-pointer active:scale-95 shadow-sm flex items-center justify-center shrink-0"
-                              title="View Table Details & Access Code"
+                              {/* Info Details Button */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  sound.playChipSound();
+                                  setCopiedDetailsCode(false);
+                                  setSelectedTableDetails(t);
+                                }}
+                                className="p-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-amber-300 border border-slate-700/60 transition-all cursor-pointer active:scale-95 shadow-sm flex items-center justify-center shrink-0"
+                                title="View Table Details & Access Code"
+                              >
+                                <Info className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Line 2: Player Count, Phase/Waiting Badge, AND Round Number Badge */}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="px-1.5 py-0.5 rounded-md bg-slate-900/90 border border-slate-700/60 text-[9.5px] text-slate-300 font-mono flex items-center gap-1 shadow-inner">
+                              <Users className="w-2.5 h-2.5 text-amber-400/90" />
+                              <span>{t.realPlayerCount || t.playerCount || 1} { (t.realPlayerCount || t.playerCount || 1) === 1 ? 'Player' : 'Players'}</span>
+                            </span>
+
+                            <span
+                              className={`px-1.5 py-0.5 rounded-md font-mono text-[9px] font-bold uppercase tracking-wider border shadow-sm flex items-center gap-1 ${
+                                t.phase === 'betting'
+                                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                                  : t.phase === 'rolling'
+                                  ? 'bg-purple-500/15 border-purple-500/40 text-purple-200 animate-pulse'
+                                  : t.phase === 'payout'
+                                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                                  : 'bg-slate-800/60 border-slate-700 text-slate-400'
+                              }`}
                             >
-                              <Info className="w-3.5 h-3.5" />
+                              {t.phase === 'betting' && `Betting (${t.timer}s)`}
+                              {t.phase === 'rolling' && `Rolling (${t.timer}s)`}
+                              {t.phase === 'payout' && `Results (${t.timer}s)`}
+                              {t.phase !== 'betting' && t.phase !== 'rolling' && t.phase !== 'payout' && 'Waiting'}
+                            </span>
+
+                            {/* Round Number Badge on Line 2 */}
+                            <span className="px-1.5 py-0.5 rounded-md bg-slate-900/90 border border-slate-700/60 text-[9.5px] text-amber-300/90 font-mono font-bold shadow-inner">
+                              Round #{t.roundNumber}
+                            </span>
+                          </div>
+
+                          {/* Integrated Real-Time A-VAR Algorithm Slider */}
+                          <TableAvarControl
+                            tableId={t.id}
+                            tableName={t.name}
+                            avarValue={t.avar ?? 50}
+                            onUpdateAvar={handleUpdateTableAvar}
+                            disabled={actionInProgress === t.id}
+                          />
+                        </div>
+
+                        {/* Bottom Footer: Pool & Actions */}
+                        <div className="flex items-center justify-between gap-2.5 pt-1.5 border-t border-slate-800/80 flex-wrap">
+                          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-950/80 border border-slate-800 font-mono text-[11px]">
+                            <span className="text-slate-400 text-[10.5px]">Round Pool:</span>
+                            <strong className="text-amber-300 font-bold">{t.totalRoundBets.toLocaleString()} 🪙</strong>
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => handleTableAction(t.id, 'delete')}
+                              disabled={actionInProgress === t.id}
+                              title="Disband active room and delete table"
+                              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-950/70 hover:bg-rose-900 border border-rose-500/40 text-rose-200 hover:text-white font-semibold text-[11px] transition-all active:scale-95 cursor-pointer shadow-sm hover:border-rose-400"
+                            >
+                              <Trash2 className="w-3 h-3 text-rose-400" />
+                              <span>Delete Table</span>
                             </button>
                           </div>
                         </div>
-
-                        {/* Line 2: Player Count, Phase/Waiting Badge, AND Round Number Badge */}
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="px-1.5 py-0.5 rounded-md bg-slate-900/90 border border-slate-700/60 text-[9.5px] text-slate-300 font-mono flex items-center gap-1 shadow-inner">
-                            <Users className="w-2.5 h-2.5 text-amber-400/90" />
-                            <span>{t.realPlayerCount || t.playerCount || 1} { (t.realPlayerCount || t.playerCount || 1) === 1 ? 'Player' : 'Players'}</span>
-                          </span>
-
-                          <span
-                            className={`px-1.5 py-0.5 rounded-md font-mono text-[9px] font-bold uppercase tracking-wider border shadow-sm flex items-center gap-1 ${
-                              t.phase === 'betting'
-                                ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
-                                : t.phase === 'rolling'
-                                ? 'bg-purple-500/15 border-purple-500/40 text-purple-200 animate-pulse'
-                                : t.phase === 'payout'
-                                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                                : 'bg-slate-800/60 border-slate-700 text-slate-400'
-                            }`}
-                          >
-                            {t.phase === 'betting' && `Betting (${t.timer}s)`}
-                            {t.phase === 'rolling' && `Rolling (${t.timer}s)`}
-                            {t.phase === 'payout' && `Results (${t.timer}s)`}
-                            {t.phase !== 'betting' && t.phase !== 'rolling' && t.phase !== 'payout' && 'Waiting'}
-                          </span>
-
-                          {/* Round Number Badge on Line 2 */}
-                          <span className="px-1.5 py-0.5 rounded-md bg-slate-900/90 border border-slate-700/60 text-[9.5px] text-amber-300/90 font-mono font-bold shadow-inner">
-                            Round #{t.roundNumber}
-                          </span>
-                        </div>
-
-                        {/* Integrated Real-Time A-VAR Algorithm Slider */}
-                        <TableAvarControl
-                          tableId={t.id}
-                          tableName={t.name}
-                          avarValue={t.avar ?? 50}
-                          onUpdateAvar={handleUpdateTableAvar}
-                          disabled={actionInProgress === t.id}
-                        />
                       </div>
+                    ))}
 
-                      {/* Bottom Footer: Pool & Actions */}
-                      <div className="flex items-center justify-between gap-2.5 pt-1.5 border-t border-slate-800/80 flex-wrap">
-                        <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-950/80 border border-slate-800 font-mono text-[11px]">
-                          <span className="text-slate-400 text-[10.5px]">Round Pool:</span>
-                          <strong className="text-amber-300 font-bold">{t.totalRoundBets.toLocaleString()} 🪙</strong>
-                        </div>
-
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            onClick={() => handleTableAction(t.id, 'delete')}
-                            disabled={actionInProgress === t.id}
-                            title="Disband active room and delete table"
-                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-950/70 hover:bg-rose-900 border border-rose-500/40 text-rose-200 hover:text-white font-semibold text-[11px] transition-all active:scale-95 cursor-pointer shadow-sm hover:border-rose-400"
-                          >
-                            <Trash2 className="w-3 h-3 text-rose-400" />
-                            <span>Delete Table</span>
-                          </button>
-                        </div>
+                    {tables.length > tablesVisibleCount && (
+                      <div className="col-span-full pt-2 text-center">
+                        <button
+                          type="button"
+                          onClick={() => setTablesVisibleCount((prev) => prev + 12)}
+                          className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-300 border border-slate-700 text-xs font-mono font-bold transition-all active:scale-95 cursor-pointer shadow-sm"
+                        >
+                          Load More Tables ({tables.length - tablesVisibleCount} remaining)
+                        </button>
                       </div>
-                    </div>
-                  ))
+                    )}
+                  </>
                 )}
               </div>
             </div>

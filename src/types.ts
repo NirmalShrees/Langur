@@ -238,6 +238,10 @@ export interface RoomState {
   id: string;
   code: string;
   name: string;
+  creatorId?: string;
+  creatorName?: string;
+  creator_id?: string;
+  creator_name?: string;
   leaderId?: string;
   leaderName?: string;
   leader_id?: string;

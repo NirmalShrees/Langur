@@ -629,6 +629,7 @@ export async function fetchRunningTablesFromSupabase(): Promise<{
       (t) =>
         !t.is_private &&
         t.status !== 'closed' &&
+        t.approval_status !== 'approved' &&
         (!t.expires_at || new Date(t.expires_at).getTime() > nowMs) &&
         t.id !== 'public-royal-table' &&
         t.code !== 'ROYAL1' &&

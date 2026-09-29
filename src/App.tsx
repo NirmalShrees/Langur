@@ -2061,7 +2061,9 @@ export default function App() {
             !t.is_private &&
             t.status !== 'closed' &&
             t.approval_status !== 'pending' &&
-            t.status !== 'pending_approval'
+            t.approval_status !== 'approved' && // user approved tables are joined via code only
+            t.status !== 'pending_approval' &&
+            t.id === 'public-royal-table'
         )
         .map((t) => ({
           id: t.id,
