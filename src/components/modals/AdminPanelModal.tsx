@@ -780,7 +780,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
         coins: typeof currentUser.coins === 'number' ? currentUser.coins : existing.coins,
         gamesPlayed: typeof currentUser.gamesPlayed === 'number' ? currentUser.gamesPlayed : existing.gamesPlayed,
         gamesWon: typeof currentUser.gamesWon === 'number' ? currentUser.gamesWon : existing.gamesWon,
-        winRate: typeof currentUser.winRate === 'number' ? currentUser.winRate : existing.winRate,
+        winRate: (currentUser.gamesPlayed || 0) > 0 ? Math.round(((currentUser.gamesWon || 0) / currentUser.gamesPlayed) * 100) : existing.winRate,
         totalWinnings: typeof currentUser.totalWinnings === 'number' ? currentUser.totalWinnings : existing.totalWinnings,
         biggestWin: typeof currentUser.biggestWin === 'number' ? currentUser.biggestWin : existing.biggestWin,
         isAdmin: true,
@@ -1401,28 +1401,6 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                         </div>
 
                         <div className="flex items-center gap-1.5">
-                          {t.phase === 'betting' && (
-                            <button
-                              onClick={() => handleTableAction(t.id, 'roll_now')}
-                              disabled={actionInProgress === t.id}
-                              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[11px] shadow active:scale-95 transition-all cursor-pointer"
-                            >
-                              <Play className="w-3 h-3 fill-slate-950" />
-                              <span>Roll Now</span>
-                            </button>
-                          )}
-
-                          {t.phase === 'payout' && (
-                            <button
-                              onClick={() => handleTableAction(t.id, 'next_round')}
-                              disabled={actionInProgress === t.id}
-                              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[11px] shadow active:scale-95 transition-all cursor-pointer"
-                            >
-                              <ChevronRight className="w-3 h-3 stroke-[2.5]" />
-                              <span>Advance</span>
-                            </button>
-                          )}
-
                           <button
                             onClick={() => handleTableAction(t.id, 'delete')}
                             disabled={actionInProgress === t.id}
@@ -2210,35 +2188,18 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
           </div>
         )}
 
-        {/* 7. GOD MODE MODAL (Separate Compact Component) */}
+        {/* 7. GOD MODE MODAL (Separate Compact Component with 2s Auto-Telemetry) */}
         {selectedGodTable && (
           <GodModeModal
-            table={selectedGodTable}
+            table={tables.find((t) => t.id === selectedGodTable.id) || selectedGodTable}
             onClose={() => setSelectedGodTable(null)}
             playersRegistry={playersRegistry}
             onTableAction={handleTableAction}
             onUpdateAvar={handleUpdateTableAvar}
-            onSelectPlayerForCoins={(player) => {
-              setSelectedPlayer({
-                id: player.id,
-                username: player.username,
-                avatar: player.avatar,
-                coins: player.coins,
-                gamesPlayed: player.gamesPlayed || 0,
-                gamesWon: player.gamesWon || 0,
-                winRate: player.winRate || 0,
-                totalWinnings: player.totalWinnings || 0,
-                biggestWin: player.biggestWin || 0,
-                isAdmin: Boolean(player.isAdmin),
-                equippedTitle: 'Player',
-                createdAt: Date.now(),
-                presence: 'in_table',
-              });
-              setCoinInputAmount('25000');
-              setCoinAdjustmentMode('grant');
-              setCoinReason(`Admin Adjustment from God Mode (${selectedGodTable.name})`);
+            onRefresh={() => {
+              fetchTables();
+              fetchPlayers();
             }}
-            onRefresh={fetchTables}
             actionInProgress={actionInProgress}
           />
         )}

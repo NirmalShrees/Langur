@@ -1206,8 +1206,12 @@ export class GameEngine {
         room.settings.avar = sanitizedVal;
       }
       this.io.to(`room:${roomId}`).emit('room:avar_updated', { roomId, avar: sanitizedVal });
+      if (room.id !== 'public-royal-table') {
+        syncTableStateToSupabaseServer(room).catch(() => {});
+      }
       console.log(`[A-VAR Engine] Room ${roomId} (${room.name}) A-VAR updated to ${sanitizedVal}% by Admin.`);
     }
+    this.io.emit('admin:table_avar_updated', { roomId, avar: sanitizedVal });
     return { success: true, avar: sanitizedVal, message: `Table A-VAR set to ${sanitizedVal}%` };
   }
 

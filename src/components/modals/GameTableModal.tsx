@@ -27,6 +27,7 @@ import {
 import { UserProfile, RoomState } from '../../types.js';
 import { sound } from '../../utils/audio.js';
 import { UserAvatar } from '../common/UserAvatar.js';
+import { copyTextToClipboard, getTableDirectJoinUrl } from '../../utils/clipboard.js';
 import {
   fetchUserCreatedTablesFromSupabase,
   requestTableCreationApproval,
@@ -422,26 +423,38 @@ export const GameTableModal: React.FC<GameTableModalProps> = ({
     }
   };
 
-  // Copy Invite Link
-  const handleCopyLink = () => {
+  // Copy / Share Invite Link
+  const handleCopyLink = async () => {
     if (!createdRoomInfo?.code) return;
-    sound.playChipSound();
-    const origin = window.location.origin;
-    const inviteUrl = `${origin}?table=${createdRoomInfo.code}`;
-    navigator.clipboard.writeText(inviteUrl).then(() => {
+    sound.playWinFanfare();
+    const inviteUrl = getTableDirectJoinUrl(createdRoomInfo.code);
+    const copied = await copyTextToClipboard(inviteUrl);
+    if (copied) {
       setCopiedLink(true);
       setTimeout(() => setCopiedLink(false), 2500);
-    }).catch(() => {});
+      onShowToast?.(`📋 Table link copied (${createdRoomInfo.code})! Share with friends to join directly.`, 'success');
+    }
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `Join Langur Burja Table (${createdRoomInfo.code})`,
+          text: `🎲 Join my Langur Burja table! Click link to join directly:`,
+          url: inviteUrl,
+        });
+      } catch {}
+    }
   };
 
   // Copy Table Code
-  const handleCopyCode = () => {
+  const handleCopyCode = async () => {
     if (!createdRoomInfo?.code) return;
     sound.playChipSound();
-    navigator.clipboard.writeText(createdRoomInfo.code).then(() => {
+    const copied = await copyTextToClipboard(createdRoomInfo.code);
+    if (copied) {
       setCopiedCode(true);
       setTimeout(() => setCopiedCode(false), 2500);
-    }).catch(() => {});
+      onShowToast?.(`📋 Table code ${createdRoomInfo.code} copied!`, 'info');
+    }
   };
 
   // Format Expiration Countdown in hours / days
@@ -598,35 +611,38 @@ export const GameTableModal: React.FC<GameTableModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Compact Table Code & Copy Actions Bar */}
-                  <div className="p-2.5 rounded-xl bg-slate-950 border border-amber-500/40 flex items-center justify-between gap-2">
-                    <div className="text-left pl-1">
-                      <span className="text-[9px] text-slate-400 uppercase font-mono block">Private Table Code</span>
-                      <span className="font-mono font-black text-xl sm:text-2xl text-amber-300 tracking-widest leading-none">
-                        {createdRoomInfo.code}
-                      </span>
+                  {/* Share Button with Code & Share Icon (Copies Direct Join Link) */}
+                  <button
+                    type="button"
+                    id="created-table-share-btn"
+                    onClick={handleCopyLink}
+                    className={`w-full py-3 px-3.5 rounded-xl border flex items-center justify-between gap-2.5 active:scale-98 transition-all cursor-pointer shadow-md ${
+                      copiedLink
+                        ? 'bg-emerald-950/80 border-emerald-400 text-emerald-200 ring-2 ring-emerald-500/30'
+                        : 'bg-slate-950 border-amber-500/50 text-amber-300 hover:border-amber-400 hover:bg-slate-900/90'
+                    }`}
+                    title="Click to copy direct join link"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 text-left">
+                      <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0">
+                        {copiedLink ? <Check className="w-4 h-4 text-emerald-400" /> : <Share2 className="w-4 h-4 text-amber-400" />}
+                      </div>
+                      <div className="min-w-0">
+                        <span className="text-[9px] text-slate-400 uppercase font-mono block">Direct Join Link</span>
+                        <span className="font-mono font-black text-sm sm:text-base text-amber-300 tracking-wider">
+                          Share {createdRoomInfo.code}
+                        </span>
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={handleCopyCode}
-                        className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 active:scale-95 transition-all flex items-center gap-1 text-xs font-bold cursor-pointer"
-                      >
-                        {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                        <span>{copiedCode ? 'Copied' : 'Copy'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={handleCopyLink}
-                        className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 active:scale-95 transition-all cursor-pointer"
-                        title="Copy Invite Link"
-                      >
-                        {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Share2 className="w-3.5 h-3.5 text-amber-400" />}
-                      </button>
-                    </div>
-                  </div>
+                    <span className={`text-xs font-bold px-3 py-1.5 rounded-lg shrink-0 transition-all ${
+                      copiedLink
+                        ? 'bg-emerald-500/30 text-emerald-300 font-mono'
+                        : 'bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-black shadow-sm'
+                    }`}>
+                      {copiedLink ? 'Link Copied!' : 'Copy Link'}
+                    </span>
+                  </button>
 
                   {/* Primary Enter Table as Host Button */}
                   <button
@@ -1003,25 +1019,41 @@ export const GameTableModal: React.FC<GameTableModalProps> = ({
 
                               <button
                                 type="button"
-                                onClick={() => {
-                                  sound.playChipSound();
-                                  navigator.clipboard.writeText(table.code).then(() => {
-                                    setCopiedMyTableCode(table.id);
-                                    setTimeout(() => setCopiedMyTableCode(null), 2000);
-                                  }).catch(() => {});
+                                onClick={async () => {
+                                  sound.playWinFanfare();
+                                  const inviteUrl = getTableDirectJoinUrl(table.code);
+                                  const copied = await copyTextToClipboard(inviteUrl);
+                                  if (copied) {
+                                    setCopiedMyTableLink(table.id);
+                                    setTimeout(() => setCopiedMyTableLink(null), 2500);
+                                    onShowToast?.(`📋 Table link copied (${table.code})! Share with friends to join directly.`, 'success');
+                                  }
+                                  if (navigator.share) {
+                                    try {
+                                      await navigator.share({
+                                        title: `Join ${table.name} on Langur Burja!`,
+                                        text: `🎲 Join my Langur Burja table "${table.name}"! Click link to join directly:`,
+                                        url: inviteUrl,
+                                      });
+                                    } catch {}
+                                  }
                                 }}
-                                className="py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-300 border border-slate-700 hover:border-amber-500/50 text-xs font-mono font-bold flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer shadow-sm shrink-0"
-                                title="Click to copy table code"
+                                className={`py-2 px-3 rounded-xl border text-xs font-mono font-bold flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer shadow-sm shrink-0 ${
+                                  copiedMyTableLink === table.id
+                                    ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
+                                    : 'bg-slate-900 hover:bg-slate-800 text-amber-300 border-slate-700 hover:border-amber-500/50'
+                                }`}
+                                title="Click to copy direct join link"
                               >
-                                {copiedMyTableCode === table.id ? (
+                                {copiedMyTableLink === table.id ? (
                                   <>
                                     <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                                    <span className="text-emerald-300 font-bold">Copied!</span>
+                                    <span className="text-emerald-300 font-bold">Link Copied!</span>
                                   </>
                                 ) : (
                                   <>
-                                    <Copy className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                                    <span className="tracking-wider">{table.code}</span>
+                                    <Share2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                    <span className="tracking-wider">Share {table.code}</span>
                                   </>
                                 )}
                               </button>

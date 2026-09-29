@@ -284,8 +284,17 @@ class VoiceService {
       const devices = await navigator.mediaDevices.enumerateDevices();
       const audioInputs = devices.filter((d) => d.kind === 'audioinput');
       this.state.inputDevices = audioInputs;
-      if (!this.state.selectedDeviceId && audioInputs.length > 0) {
-        this.state.selectedDeviceId = audioInputs[0].deviceId;
+      
+      // Select the first real hardware device ID (preferring non-default device ID if available)
+      const validHardwareDevice = audioInputs.find(
+        (d) => d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications'
+      );
+      const chosenId = validHardwareDevice?.deviceId || (audioInputs.length > 0 ? audioInputs[0].deviceId : '');
+
+      if (!this.state.selectedDeviceId || this.state.selectedDeviceId === 'default') {
+        if (chosenId) {
+          this.state.selectedDeviceId = chosenId;
+        }
       }
       this.notify();
       return audioInputs;
@@ -298,7 +307,7 @@ class VoiceService {
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (AudioCtx && (!this.audioContext || this.audioContext.state === 'closed')) {
-        this.audioContext = new AudioCtx({ sampleRate: 16000 });
+        this.audioContext = new AudioCtx();
       }
       if (this.audioContext && this.audioContext.state === 'suspended') {
         this.audioContext.resume().catch(() => {});
@@ -448,23 +457,76 @@ class VoiceService {
   public async initMicrophone(): Promise<boolean> {
     try {
       if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+        this.state.error = 'Microphone API not supported on this browser';
+        this.notify();
         return false;
       }
 
       this.ensureAudioContext();
 
-      const constraints: MediaStreamConstraints = {
-        audio: {
-          deviceId: this.state.selectedDeviceId ? { exact: this.state.selectedDeviceId } : undefined,
+      let stream: MediaStream | null = null;
+      const chosenId = this.state.selectedDeviceId;
+
+      // Tier 1: Try with ideal device ID (never exact to avoid overconstrained errors) & full processing
+      try {
+        const audioConstraints: MediaTrackConstraints = {
           echoCancellation: this.state.echoCancellation,
           noiseSuppression: this.state.noiseSuppression,
           autoGainControl: true,
-        },
-        video: false,
-      };
+        };
+        if (chosenId && chosenId !== 'default' && chosenId !== 'communications') {
+          audioConstraints.deviceId = { ideal: chosenId };
+        }
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: audioConstraints,
+          video: false,
+        });
+      } catch (t1Err) {
+        console.warn('[VoiceService] Tier 1 mic capture fallback:', t1Err);
+      }
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      // Tier 2: Try standard audio with echo cancellation
+      if (!stream) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: this.state.echoCancellation,
+              noiseSuppression: this.state.noiseSuppression,
+            },
+            video: false,
+          });
+        } catch (t2Err) {
+          console.warn('[VoiceService] Tier 2 mic capture fallback:', t2Err);
+        }
+      }
+
+      // Tier 3: Basic audio capture
+      if (!stream) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: false,
+          });
+        } catch (t3Err: any) {
+          console.error('[VoiceService] All microphone capture tiers failed:', t3Err);
+          this.state.error = 'Microphone permission needed. Please allow microphone access.';
+          this.notify();
+          return false;
+        }
+      }
+
       this.localStream = stream;
+
+      // Detect and record active hardware deviceId
+      const activeTrack = stream.getAudioTracks()[0];
+      if (activeTrack) {
+        const actualDeviceId = activeTrack.getSettings?.().deviceId;
+        if (actualDeviceId && actualDeviceId !== 'default') {
+          this.state.selectedDeviceId = actualDeviceId;
+        }
+        // Re-enumerate devices with newly granted permission
+        this.loadInputDevices().catch(() => {});
+      }
 
       // Apply current mute state to audio tracks
       this.localStream.getAudioTracks().forEach((t) => {
@@ -472,19 +534,17 @@ class VoiceService {
       });
 
       // Update tracks on all active peer connections and trigger renegotiation
-      const audioTrack = stream.getAudioTracks()[0];
-      if (audioTrack) {
+      if (activeTrack) {
         this.peerConnections.forEach(async (pc, peerSid) => {
           const senders = pc.getSenders();
           const audioSender = senders.find((s) => s.track && s.track.kind === 'audio');
           if (audioSender) {
-            await audioSender.replaceTrack(audioTrack).catch(() => {});
+            await audioSender.replaceTrack(activeTrack).catch(() => {});
           } else {
             try {
-              pc.addTrack(audioTrack, stream);
+              pc.addTrack(activeTrack, stream!);
             } catch (e) {}
           }
-          // Renegotiate track to remote peer
           this.renegotiatePeer(peerSid, pc);
         });
       }
@@ -495,6 +555,8 @@ class VoiceService {
       return true;
     } catch (err: any) {
       console.warn('[VoiceService] Microphone access note:', err?.message || err);
+      this.state.error = err?.message || 'Microphone error';
+      this.notify();
       return false;
     }
   }

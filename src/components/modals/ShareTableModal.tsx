@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X, Copy, Check, Share2, Link as LinkIcon, Users, Crown } from 'lucide-react';
+import { copyTextToClipboard, getTableDirectJoinUrl } from '../../utils/clipboard.js';
 
 interface ShareTableModalProps {
   isOpen: boolean;
@@ -25,33 +26,36 @@ export const ShareTableModal: React.FC<ShareTableModalProps> = ({
 
   if (!isOpen) return null;
 
-  const inviteUrl = `${window.location.origin}?table=${roomCode}`;
+  const inviteUrl = getTableDirectJoinUrl(roomCode);
 
-  const handleCopyCode = () => {
-    navigator.clipboard.writeText(roomCode);
-    setCopiedCode(true);
-    setTimeout(() => setCopiedCode(false), 2000);
+  const handleCopyCode = async () => {
+    const copied = await copyTextToClipboard(roomCode);
+    if (copied) {
+      setCopiedCode(true);
+      setTimeout(() => setCopiedCode(false), 2000);
+    }
   };
 
-  const handleCopyLink = () => {
-    navigator.clipboard.writeText(inviteUrl);
-    setCopiedLink(true);
-    setTimeout(() => setCopiedLink(false), 2000);
+  const handleCopyLink = async () => {
+    const copied = await copyTextToClipboard(inviteUrl);
+    if (copied) {
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
+    }
   };
 
   const handleNativeShare = async () => {
+    await handleCopyLink();
     if (navigator.share) {
       try {
         await navigator.share({
           title: `Join ${roomName} on Langur Burja!`,
-          text: `🎲 Join table "${roomName}" (Table Code: ${roomCode})! Tap to roll:`,
+          text: `🎲 Join table "${roomName}" (Table Code: ${roomCode})! Tap link to join directly:`,
           url: inviteUrl,
         });
       } catch {
         // User cancelled share
       }
-    } else {
-      handleCopyLink();
     }
   };
 

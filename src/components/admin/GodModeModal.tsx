@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Zap,
   X,
@@ -8,7 +8,6 @@ import {
   ChevronRight,
   RefreshCw,
   Clock,
-  Coins,
   Crown,
   Users,
   Target,
@@ -66,7 +65,6 @@ interface GodModeModalProps {
   playersRegistry: Record<string, GodModeCareerStats>;
   onTableAction: (tableId: string, action: 'roll_now' | 'next_round' | 'terminate' | 'delete') => Promise<void>;
   onUpdateAvar: (tableId: string, avar: number) => Promise<void>;
-  onSelectPlayerForCoins: (player: GodModePlayer & GodModeCareerStats) => void;
   onRefresh: () => void;
   actionInProgress: string | null;
 }
@@ -77,11 +75,20 @@ export const GodModeModal: React.FC<GodModeModalProps> = ({
   playersRegistry,
   onTableAction,
   onUpdateAvar,
-  onSelectPlayerForCoins,
   onRefresh,
   actionInProgress,
 }) => {
   const [copiedCode, setCopiedCode] = useState(false);
+
+  // Auto-refresh table every 2 seconds only while God View is open/mounted
+  useEffect(() => {
+    onRefresh();
+    const intervalId = setInterval(() => {
+      onRefresh();
+    }, 2000);
+
+    return () => clearInterval(intervalId);
+  }, [onRefresh]);
 
   const handleCopyCode = () => {
     sound.playChipSound();
@@ -282,7 +289,7 @@ export const GodModeModal: React.FC<GodModeModalProps> = ({
                         }}
                       />
                       <span className="font-bold text-[11px] text-slate-200 truncate flex-1">{symInfo.name}</span>
-                      <span className="text-[9px] text-amber-400/90 font-nepali truncate">{symInfo.nepali}</span>
+                      <span className="text-[9px] text-amber-400/90 font-nepali truncate">{symInfo.nepaliName}</span>
                     </div>
 
                     <div className="font-mono text-[11px] flex items-center justify-between border-t border-slate-800/60 pt-0.5">
@@ -425,8 +432,8 @@ export const GodModeModal: React.FC<GodModeModalProps> = ({
                         </div>
                       </div>
 
-                      {/* Right: Career Stats & Coins Action */}
-                      <div className="flex items-center justify-between md:justify-end gap-2 font-mono text-[10.5px] shrink-0">
+                      {/* Right: Career Stats */}
+                      <div className="flex items-center justify-end font-mono text-[10.5px] shrink-0">
                         <div className="text-right leading-tight">
                           <div className="text-slate-300">
                             Win Rate: <strong className="text-amber-300">{winRate}%</strong> <span className="text-[9px] text-slate-500">({gamesWon}/{gamesPlayed})</span>
@@ -435,21 +442,6 @@ export const GodModeModal: React.FC<GodModeModalProps> = ({
                             Won: <strong className="text-emerald-400">+{career.totalWinnings.toLocaleString()} 🪙</strong>
                           </div>
                         </div>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onSelectPlayerForCoins({
-                              ...p,
-                              ...career,
-                            });
-                          }}
-                          className="px-2 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[10.5px] font-bold transition-all cursor-pointer active:scale-95 flex items-center gap-1 shadow-sm"
-                          title="Adjust Coins"
-                        >
-                          <Coins className="w-3 h-3 text-amber-400" />
-                          <span>Coins</span>
-                        </button>
                       </div>
                     </div>
                   );
@@ -459,11 +451,14 @@ export const GodModeModal: React.FC<GodModeModalProps> = ({
           </div>
         </div>
 
-        {/* Compact Footer (Zero Wasted Space - No Bottom Close Button) */}
+        {/* Compact Footer (Zero Wasted Space - Live 2s Sync Indicator) */}
         <footer className="px-3.5 py-1.5 bg-slate-950/95 border-t border-slate-800/80 flex items-center justify-between gap-2 text-[10px] font-mono text-slate-400 shrink-0">
-          <div className="flex items-center gap-1">
-            <Activity className="w-3 h-3 text-amber-400 animate-pulse" />
-            <span>Active Live Socket Telemetry</span>
+          <div className="flex items-center gap-1.5">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <span className="text-emerald-300 font-semibold">Live 2s Auto-Telemetry Sync</span>
           </div>
           <div className="text-slate-500">
             Esc / ✕ to close

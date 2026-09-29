@@ -50,6 +50,7 @@ import {
 import { voiceService } from './services/voiceService.js';
 import { ErrorBoundary } from './components/common/index.js';
 import { sound } from './utils/audio.js';
+import { copyTextToClipboard, getTableDirectJoinUrl } from './utils/clipboard.js';
 import { addCoinReceipt, getCoinReceipts } from './utils/coinHistory.js';
 import {
   AppNotification,
@@ -1324,12 +1325,21 @@ export default function App() {
     s.on('user:table_request_decided', (payload: {
       approved: boolean;
       requestId?: string;
+      targetUserId?: string;
+      userId?: string;
       tableName: string;
       validityHours?: number;
       adminName: string;
       adminMessage: string;
       notification?: AppNotification;
+      table?: any;
     }) => {
+      // Only process for the requester (or if not specified, process for current user)
+      const targetId = payload.targetUserId || payload.userId;
+      if (targetId && targetId !== userRef.current.id) {
+        return;
+      }
+
       if (payload.approved) {
         setUser((u) => {
           const updated = {
@@ -1342,19 +1352,41 @@ export default function App() {
           return updated;
         });
         sound.playWinFanfare();
-        showToast(`👑 Table Approved! Admin ${payload.adminName}: "${payload.adminMessage}"`, 'success');
+        const toastMsg = payload.adminMessage
+          ? `👑 Table "${payload.tableName}" Approved by ${payload.adminName || 'Admin'}! "${payload.adminMessage}"`
+          : `👑 Table "${payload.tableName}" Approved for ${payload.validityHours || 24} hours by ${payload.adminName || 'Admin'}!`;
+        showToast(toastMsg, 'success');
       } else {
         sound.playChipSound();
-        showToast(`Table Request Declined. Admin ${payload.adminName}: "${payload.adminMessage}"`, 'info');
+        const toastMsg = payload.adminMessage
+          ? `Table "${payload.tableName}" Declined by ${payload.adminName || 'Admin'}: "${payload.adminMessage}"`
+          : `Table Request for "${payload.tableName}" was declined by ${payload.adminName || 'Admin'}.`;
+        showToast(toastMsg, 'info');
       }
 
-      if (payload.notification) {
-        setNotifications((prev) => {
-          const updated = [payload.notification!, ...prev.filter((n) => n.id !== payload.notification!.id)];
-          saveNotifications(updated);
-          return updated;
-        });
-      }
+      const note: AppNotification = payload.notification || {
+        id: `note_dec_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        title: payload.approved ? '👑 Table Request Approved' : 'Table Request Declined',
+        message: payload.approved
+          ? (payload.adminMessage
+              ? `Your table "${payload.tableName}" was approved by Admin ${payload.adminName || 'Admin'}: "${payload.adminMessage}"`
+              : `Your table "${payload.tableName}" was approved for ${payload.validityHours || 24} hours by Admin ${payload.adminName || 'Admin'}.`)
+          : (payload.adminMessage
+              ? `Your table "${payload.tableName}" request was declined by Admin ${payload.adminName || 'Admin'}: "${payload.adminMessage}"`
+              : `Your table "${payload.tableName}" request was declined by Admin ${payload.adminName || 'Admin'}.`),
+        type: payload.approved ? 'reward' : 'system',
+        timestamp: Date.now(),
+        state: 'not seen',
+      };
+
+      setNotifications((prev) => {
+        const updated = [note, ...prev.filter((n) => n.id !== note.id)];
+        saveNotifications(updated);
+        if (userRef.current.id && !userRef.current.id.startsWith('guest_')) {
+          syncNotificationsToSupabase(userRef.current.id, updated);
+        }
+        return updated;
+      });
     });
 
     // Admin Real-Time Alert when a player or admin requests a table
@@ -2455,6 +2487,37 @@ export default function App() {
     [socket, isConnected, user, showToast, startNextRound]
   );
 
+  // Auto-join table directly from shared URL invite link (e.g. ?table=CODE or ?join=CODE or #table=CODE)
+  const processedUrlTableCodeRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !user.id || !isConnected) return;
+    try {
+      const searchParams = new URLSearchParams(window.location.search);
+      const hashParams = new URLSearchParams(window.location.hash.replace(/^[#?]/, ''));
+      const rawCode = searchParams.get('table') || searchParams.get('join') || hashParams.get('table') || hashParams.get('join');
+      const tableCode = rawCode?.trim().toUpperCase();
+
+      if (tableCode && tableCode.length >= 4 && tableCode !== processedUrlTableCodeRef.current) {
+        processedUrlTableCodeRef.current = tableCode;
+        showToast(`🔗 Opening table from invite link (${tableCode})...`, 'info');
+        handleJoinByCode(tableCode).then((res) => {
+          if (res.success) {
+            setIsTableModalOpen(false);
+            setIsAuthModalOpen(false);
+            setIsInGame(true);
+            // Clean table param from URL bar without full page reload
+            try {
+              window.history.replaceState({}, document.title, window.location.pathname);
+            } catch (e) {}
+          }
+        });
+      }
+    } catch (err) {
+      console.warn('Error parsing table invite URL:', err);
+    }
+  }, [user.id, isConnected, handleJoinByCode, showToast]);
+
   const generateRandomClientTableName = useCallback((): string => {
     const names = [
       'Royal Himalayan Pavilion',
@@ -2899,28 +2962,27 @@ export default function App() {
     [currentRoom, socket, user.id, showToast]
   );
 
-  const handleShareCurrentTable = useCallback(() => {
-    if (!currentRoom) return;
-    const origin = window.location.origin;
-    const inviteUrl = `${origin}?table=${currentRoom.code}`;
+  const handleShareCurrentTable = useCallback(async () => {
+    const tableCode = currentRoom?.code || 'ROYAL1';
+    const tableName = currentRoom?.name || 'Langur Burja Table';
+    const inviteUrl = getTableDirectJoinUrl(tableCode);
+
+    sound.playWinFanfare();
+    const copied = await copyTextToClipboard(inviteUrl);
+    if (copied) {
+      showToast(`📋 Table link copied (${tableCode})! Share with friends to join directly.`, 'success');
+    } else {
+      showToast(`Table Code: ${tableCode}`, 'info');
+    }
 
     if (navigator.share) {
-      navigator
-        .share({
-          title: 'Join my Langur Burja Table!',
-          text: `🎲 Join table "${currentRoom.name}" (Code: ${currentRoom.code})! Tap to roll:`,
+      try {
+        await navigator.share({
+          title: `Join ${tableName} on Langur Burja!`,
+          text: `🎲 Join my Langur Burja table "${tableName}"! Click link to join directly:`,
           url: inviteUrl,
-        })
-        .catch(() => {});
-    } else {
-      navigator.clipboard
-        .writeText(inviteUrl)
-        .then(() => {
-          showToast(`Invite link copied for table ${currentRoom.code}!`, 'success');
-        })
-        .catch(() => {
-          showToast(`Table Code: ${currentRoom.code}`, 'info');
         });
+      } catch {}
     }
   }, [currentRoom, showToast]);
 
@@ -3365,6 +3427,7 @@ export default function App() {
               <ActivePlayersDeck
                 players={activeTablePlayers}
                 phase={phase}
+                tableName={currentRoom?.name || 'Royal Pavilion'}
                 onToggleUserReady={handleToggleUserReady}
                 isUserReady={isUserReady}
                 nextRoundVotes={nextRoundVotes}

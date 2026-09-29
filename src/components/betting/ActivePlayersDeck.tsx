@@ -23,6 +23,7 @@ export interface TablePlayer {
 interface ActivePlayersDeckProps {
   players: TablePlayer[];
   phase: 'waiting' | 'betting' | 'rolling' | 'payout';
+  tableName?: string;
   onToggleUserReady?: () => void;
   isUserReady?: boolean;
   nextRoundVotes?: string[];
@@ -44,6 +45,7 @@ interface ActivePlayersDeckProps {
 export const ActivePlayersDeck: React.FC<ActivePlayersDeckProps> = React.memo(({
   players,
   phase,
+  tableName = 'Royal Pavilion',
   onToggleUserReady,
   isUserReady = false,
   nextRoundVotes = [],
@@ -62,6 +64,15 @@ export const ActivePlayersDeck: React.FC<ActivePlayersDeckProps> = React.memo(({
 }) => {
   const [showRosterModal, setShowRosterModal] = useState(false);
   const [voiceState, setVoiceState] = useState<VoiceState>(voiceService.getState());
+
+  // Cap table name after 15 characters (e.g. nepalese fortun..)
+  const formattedTableName = useMemo(() => {
+    const raw = (tableName || 'Royal Pavilion').trim();
+    if (raw.length > 15) {
+      return `${raw.slice(0, 15)}..`;
+    }
+    return raw;
+  }, [tableName]);
 
   useEffect(() => {
     const unsub = voiceService.subscribe((vs) => {
@@ -144,9 +155,14 @@ export const ActivePlayersDeck: React.FC<ActivePlayersDeckProps> = React.memo(({
         {/* Left: Table Status */}
         <div className="flex items-center gap-1.5 text-slate-400 min-w-0">
           <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
-          <span className="font-semibold text-amber-200/90 tracking-wide uppercase text-[9px]">Pavilion Deck</span>
+          <span
+            className="font-semibold text-amber-200/95 tracking-wide text-[9.5px] truncate max-w-[130px] sm:max-w-[180px]"
+            title={tableName || 'Royal Pavilion'}
+          >
+            {formattedTableName}
+          </span>
           <span className="text-slate-600">•</span>
-          <span className="text-slate-300 font-bold">{uniquePlayers.length} {uniquePlayers.length === 1 ? 'Player' : 'Players'}</span>
+          <span className="text-slate-300 font-bold shrink-0">{uniquePlayers.length} {uniquePlayers.length === 1 ? 'Player' : 'Players'}</span>
         </div>
 
         {/* Top Right: Voice Chat Button & Network Ping Indicator */}

@@ -32,11 +32,14 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
   const [pushToTalk, setPushToTalk] = useState(voiceState.pushToTalk);
 
   useEffect(() => {
+    if (isOpen) {
+      voiceService.loadInputDevices().catch(() => {});
+    }
     setSelectedDevice(voiceState.selectedDeviceId);
     setEchoCancel(voiceState.echoCancellation);
     setNoiseSupp(voiceState.noiseSuppression);
     setPushToTalk(voiceState.pushToTalk);
-  }, [voiceState]);
+  }, [isOpen, voiceState]);
 
   if (!isOpen) return null;
 
@@ -112,9 +115,20 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                 <Radio className="w-3 h-3 text-emerald-400 animate-pulse" />
                 Mic Input Level
               </span>
-              <span className={`text-[10px] font-mono font-bold ${voiceState.isMuted ? 'text-rose-400' : voiceState.isSpeaking ? 'text-emerald-400' : 'text-slate-400'}`}>
-                {voiceState.isMuted ? 'MUTED' : voiceState.isSpeaking ? 'TRANSMITTING' : 'IDLE'}
-              </span>
+              <div className="flex items-center gap-2">
+                {voiceState.isMuted && (
+                  <button
+                    type="button"
+                    onClick={() => voiceService.toggleMute()}
+                    className="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-400/40 text-[9.5px] font-mono font-bold transition-all cursor-pointer active:scale-95"
+                  >
+                    Unmute to Test
+                  </button>
+                )}
+                <span className={`text-[10px] font-mono font-bold ${voiceState.isMuted ? 'text-rose-400' : voiceState.isSpeaking ? 'text-emerald-400' : 'text-slate-400'}`}>
+                  {voiceState.isMuted ? 'MUTED' : voiceState.isSpeaking ? 'TRANSMITTING' : 'LISTENING'}
+                </span>
+              </div>
             </div>
 
             {/* Level Bar */}
@@ -131,27 +145,38 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
               />
             </div>
             <p className="text-[9px] text-slate-400">
-              Speak into your microphone. The bar moves when audio is detected.
+              {voiceState.isMuted
+                ? 'Microphone is currently muted. Click "Unmute to Test" to test your voice.'
+                : 'Speak into your microphone. The green bar moves when audio is detected.'}
             </p>
           </div>
 
           {/* Audio Input Device */}
           <div className="space-y-1.5">
-            <label className="text-[10.5px] font-mono uppercase text-amber-300 font-bold flex items-center gap-1.5">
-              <Headphones className="w-3 h-3 text-amber-400" />
-              Microphone Device
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-[10.5px] font-mono uppercase text-amber-300 font-bold flex items-center gap-1.5">
+                <Headphones className="w-3 h-3 text-amber-400" />
+                Microphone Device
+              </label>
+              <button
+                type="button"
+                onClick={() => voiceService.loadInputDevices()}
+                className="text-[9.5px] font-mono text-slate-400 hover:text-amber-300 underline cursor-pointer"
+              >
+                Scan Devices
+              </button>
+            </div>
             <select
               value={selectedDevice}
               onChange={handleDeviceChange}
               className="w-full bg-slate-950 border border-slate-700 hover:border-slate-600 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-400 transition-colors"
             >
               {voiceState.inputDevices.length === 0 ? (
-                <option value="">Default System Microphone</option>
+                <option value="">System Microphone (Active)</option>
               ) : (
                 voiceState.inputDevices.map((device, idx) => (
                   <option key={device.deviceId || idx} value={device.deviceId}>
-                    {device.label || `Microphone ${idx + 1}`}
+                    {device.label || (device.deviceId === 'default' ? 'Default Microphone' : `Microphone ${idx + 1}`)}
                   </option>
                 ))
               )}

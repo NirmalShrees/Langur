@@ -876,20 +876,26 @@ async function startServer() {
         }
       }
 
-      // Real-time socket dispatch to the player
+      // Real-time socket dispatch to the player (both direct socket and targeted broadcast)
+      const decisionPayload = {
+        approved: isApproved,
+        requestId,
+        targetUserId: reqItem.userId,
+        userId: reqItem.userId,
+        tableName: reqItem.tableName,
+        validityHours: effectiveHours,
+        adminName: cleanAdminName,
+        adminMessage: cleanAdminMsg,
+        notification: playerNotification,
+        table: createdTableRecord,
+      };
+
       const targetSocketId = userSockets.get(reqItem.userId);
       if (targetSocketId) {
-        io.to(targetSocketId).emit('user:table_request_decided', {
-          approved: isApproved,
-          requestId,
-          tableName: reqItem.tableName,
-          validityHours: effectiveHours,
-          adminName: cleanAdminName,
-          adminMessage: cleanAdminMsg,
-          notification: playerNotification,
-          table: createdTableRecord,
-        });
+        io.to(targetSocketId).emit('user:table_request_decided', decisionPayload);
       }
+      // Also broadcast with targetUserId so reconnecting or tab-switching clients always receive it
+      io.emit('user:table_request_decided', decisionPayload);
 
       // Broadcast update to all admins and users
       io.emit('admin:table_requests_updated', { requestId, decision });
