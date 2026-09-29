@@ -919,12 +919,19 @@ async function startServer() {
           (p: any) => !p.id.startsWith('patron_') && !p.id.startsWith('bot_')
         );
 
+        const isSystem = r.id === 'public-royal-table' || r.code === 'ROYAL1' || r.hostId === 'system_host' || r.hostId === 'system';
+        const explicitAdmin =
+          (r as any).approvedByAdminName ||
+          (r as any).approved_by_admin_name ||
+          (r as any).approval_meta?.admin_name ||
+          (r as any).approvalMeta?.admin_name;
+
         allRooms.push({
           id: r.id,
           name: r.name,
           code: r.code,
           hostId: r.hostId,
-          hostName: r.players[r.hostId]?.username || 'Host',
+          hostName: r.players[r.hostId]?.username || (r as any).host_name || 'Host',
           isPrivate: r.isPrivate,
           phase: r.phase,
           timer: r.timer,
@@ -948,10 +955,12 @@ async function startServer() {
           status: r.phase === 'waiting' ? 'waiting' : 'active',
           approvalStatus: (r as any).approval_status || 'approved',
           approvalMeta: (r as any).approval_meta || (r as any).approvalMeta || {},
-          approvedByAdminName: (r as any).approvedByAdminName || (r as any).approval_meta?.admin_name,
+          approvedByAdminName: explicitAdmin,
+          approved_by_admin_name: explicitAdmin,
           adminApprovalMessage: (r as any).adminApprovalMessage || (r as any).approval_meta?.message,
           expiresAt: r.expiresAt || (r as any).expires_at,
           createdAt: (r as any).createdAt || (r as any).created_at,
+          isSystemGenerated: isSystem,
         });
       }
 
@@ -970,6 +979,13 @@ async function startServer() {
                 const statsArr = Array.isArray(dt.player_stats) ? dt.player_stats : [];
                 const playersArr = Array.isArray(dt.players) ? dt.players : [];
                 const pList = statsArr.length > 0 ? statsArr : playersArr;
+
+                const isSystemDb = dt.id === 'public-royal-table' || dt.code === 'ROYAL1' || dt.host_id === 'system_host' || dt.host_id === 'system';
+                const explicitAdminDb =
+                  dt.approved_by_admin_name ||
+                  dt.approvedByAdminName ||
+                  dt.approval_meta?.admin_name ||
+                  dt.approvalMeta?.admin_name;
 
                 allRooms.push({
                   id: dt.id,
@@ -999,10 +1015,12 @@ async function startServer() {
                   status: dt.status || 'waiting',
                   approvalStatus: dt.approval_status || (dt.approved ? 'approved' : 'pending'),
                   approvalMeta: dt.approval_meta || {},
-                  approvedByAdminName: dt.approved_by_admin_name || dt.approval_meta?.admin_name,
+                  approvedByAdminName: explicitAdminDb,
+                  approved_by_admin_name: explicitAdminDb,
                   adminApprovalMessage: dt.admin_approval_message || dt.approval_meta?.message,
                   expiresAt: dt.expires_at,
                   createdAt: dt.created_at,
+                  isSystemGenerated: isSystemDb,
                 });
               }
             }

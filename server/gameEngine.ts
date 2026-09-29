@@ -557,13 +557,32 @@ export class GameEngine {
     let isReconnection = false;
     let player: PlayerInRoom;
 
+    // Check if other real human players exist in the room
+    const otherRealPlayers = Object.values(room.players).filter(
+      (p) => p.id !== user.id && !p.id.startsWith('patron_') && !p.id.startsWith('bot_') && p.id !== 'system_host' && p.id !== 'system'
+    );
+
+    // If joining the default public table or a room where host is system/absent,
+    // and there are no other real human players present, make this user the leader/host!
+    const shouldBeHost =
+      otherRealPlayers.length === 0 &&
+      (room.id === 'public-royal-table' ||
+        room.code === 'ROYAL1' ||
+        room.hostId === 'system_host' ||
+        room.hostId === 'system' ||
+        !room.players[room.hostId]);
+
+    if (shouldBeHost) {
+      room.hostId = user.id;
+    }
+
     if (existingPlayer) {
       isReconnection = true;
       existingPlayer.id = user.id;
       existingPlayer.username = user.username;
       existingPlayer.avatar = user.avatar || existingPlayer.avatar;
       existingPlayer.coins = freshUser.coins;
-      existingPlayer.isHost = room.hostId === user.id;
+      existingPlayer.isHost = shouldBeHost || room.hostId === user.id;
       existingPlayer.isDisconnected = false;
       delete existingPlayer.disconnectedAt;
       existingPlayer.lastActive = Date.now();
@@ -578,7 +597,7 @@ export class GameEngine {
         username: user.username,
         avatar: user.avatar,
         coins: freshUser.coins,
-        isHost: room.hostId === user.id,
+        isHost: shouldBeHost || room.hostId === user.id,
         bets: { jhanda: 0, burja: 0, itta: 0, paan: 0, hukum: 0, chidi: 0 },
         totalBetThisRound: 0,
         sessionStats: {
@@ -683,6 +702,7 @@ export class GameEngine {
     // If no real players remain at the table (0 real players), delete the table (unless it is the permanent public pavilion)
     if (remainingRealPlayers.length === 0) {
       if (roomId === 'public-royal-table') {
+        room.hostId = 'system_host';
         room.phase = 'waiting';
         room.tableBets = { jhanda: 0, burja: 0, itta: 0, paan: 0, hukum: 0, chidi: 0 };
         syncTableStateToSupabaseServer(room).catch(() => {});

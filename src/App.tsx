@@ -3154,7 +3154,15 @@ export default function App() {
 
   // Compile active players for the pavilion deck with useMemo to guarantee 0 duplicates
   const activeTablePlayers = useMemo<TablePlayer[]>(() => {
-    const isMeHost = Boolean(currentRoom ? currentRoom.hostId === user.id : true);
+    const isDefaultTableWithoutRealLeader = Boolean(
+      currentRoom &&
+        (currentRoom.id === 'public-royal-table' || currentRoom.code === 'ROYAL1' || currentRoom.hostId === 'system_host') &&
+        (!currentRoom.players ||
+          Object.values(currentRoom.players).filter(
+            (p) => p.id !== user.id && !p.id.startsWith('patron_') && !p.id.startsWith('bot_') && p.id !== 'system_host'
+          ).length === 0)
+    );
+    const isMeHost = Boolean(currentRoom ? currentRoom.hostId === user.id || isDefaultTableWithoutRealLeader : true);
     const currentUserPlayer: TablePlayer = {
       id: user.id || 'user_me',
       username: user.username || 'You',
@@ -3280,7 +3288,7 @@ export default function App() {
   return (
     <div
       id="app-root-container"
-      className={`min-h-screen ${globalAppBg} text-slate-100 flex flex-col items-center select-none`}
+      className={`w-full h-[100dvh] max-h-[100dvh] overflow-hidden ${globalAppBg} text-slate-100 flex flex-col items-center select-none`}
     >
       {/* Dynamic Screen: Main Menu vs Active Game Arena */}
       {!isInGame ? (
@@ -3329,7 +3337,7 @@ export default function App() {
         </>
       ) : (
         /* Main Mobile Screen Wrapper: Responsive adaptive viewport */
-        <div className={`w-full max-w-md sm:max-w-lg md:max-w-xl h-[100dvh] sm:h-[96vh] sm:max-h-[960px] flex flex-col justify-between shadow-2xl border-x ${gameFrameBorder} bg-slate-950 relative overflow-hidden sm:rounded-3xl transition-colors duration-300`}>
+        <div className={`w-full max-w-md sm:max-w-lg md:max-w-xl h-[100dvh] max-h-[100dvh] sm:h-[96vh] sm:max-h-[960px] flex flex-col justify-between shadow-2xl border-x ${gameFrameBorder} bg-slate-950 relative overflow-hidden sm:rounded-3xl transition-colors duration-300`}>
           {/* 1. Mobile Top Header with Profile Access, Fullscreen & Settings */}
           <MobileHeader
             user={user}

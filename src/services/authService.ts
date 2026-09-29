@@ -306,11 +306,20 @@ export async function fetchRemoteProfile(userId: string): Promise<UserProfile | 
     const isPermExpired = permExpiry ? new Date(permExpiry).getTime() < Date.now() : false;
     const canCreateTable = Boolean(rawCanCreate && !isPermExpired);
 
+    const googleAvatar =
+      data.google_avatar ||
+      rawStats.googleAvatar ||
+      (data.avatar?.startsWith('http') ? data.avatar : undefined) ||
+      (data.avatar_url?.startsWith('http') ? data.avatar_url : undefined);
+    const googleName = data.google_name || rawStats.googleName || data.username;
+
     return {
       id: data.id,
       email: data.email || undefined,
       username: data.username || 'Festival Player',
       avatar: data.avatar || data.avatar_url || '🎲',
+      googleAvatar,
+      googleName,
       coins: typeof data.coins === 'number' ? data.coins : (typeof rawStats.coins === 'number' ? rawStats.coins : 5000),
       totalWinnings: data.total_winnings ?? rawStats.totalWinnings ?? 0,
       gamesPlayed: data.games_played ?? rawStats.gamesPlayed ?? 0,
@@ -396,6 +405,8 @@ export async function syncProfileToSupabase(profile: UserProfile): Promise<{ suc
       profileConfigured: profile.profileConfigured ?? true,
       hasPassword,
       coinHistory: historyList,
+      googleAvatar: profile.googleAvatar || (profile.avatar?.startsWith('http') ? profile.avatar : undefined),
+      googleName: profile.googleName || profile.username,
       equipped: profile.equipped || {
         diceSkin: 'dice_classic',
         tableMat: 'mat_velvet_green',
@@ -633,17 +644,23 @@ export async function signInWithGoogleInstant(
   const existingLocal = getStoredLocalProfile();
   const base = existingRemote || (existingLocal?.id === safeId ? existingLocal : null);
 
+  const fallbackAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=4285F4&color=fff&bold=true&size=128`;
+  const initialAvatar = base?.avatar || fallbackAvatar;
+
   const googleProfile: UserProfile = {
     ...(base || createDefaultProfile(safeId, name)),
     id: safeId,
     email,
     username: base?.username && !base.username.startsWith('Guest') ? base.username : name,
-    avatar:
-      base?.avatar ||
-      'https://lh3.googleusercontent.com/a/ACg8ocKz-google-user-avatar-default=s96-c',
+    avatar: initialAvatar,
+    googleAvatar: base?.googleAvatar || initialAvatar,
+    googleName: base?.googleName || name,
     isGuest: false,
     authProvider: 'google',
   };
+
+  localStorage.setItem('langur_burja_google_avatar', googleProfile.avatar);
+  localStorage.setItem('langur_burja_google_name', googleProfile.username);
 
   saveLocalProfile(googleProfile);
   await syncProfileToSupabase(googleProfile);

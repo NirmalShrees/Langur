@@ -131,6 +131,68 @@ function formatTimeRemaining(expiresAt?: string, isPending?: boolean, validityHo
   return `${hours}h ${mins}m left`;
 }
 
+function getApprovedByDisplayName(
+  table: TableAdminData | null | any,
+  currentUser: UserProfile,
+  playersList: PlayerAdminData[] = []
+): string {
+  if (!table) return 'System Admin';
+
+  // 1. Is it a system-generated default app table?
+  const isSystemGenerated = Boolean(
+    table.id === 'public-royal-table' ||
+    table.code === 'ROYAL1' ||
+    table.hostId === 'system_host' ||
+    table.hostId === 'system' ||
+    table.host_id === 'system_host' ||
+    table.host_id === 'system' ||
+    table.isSystemGenerated === true ||
+    (typeof table.id === 'string' && table.id.startsWith('system_'))
+  );
+
+  if (isSystemGenerated) {
+    return 'System Admin';
+  }
+
+  // 2. Explicit approvedByAdminName or approvalMeta recorded
+  const explicitAdminName =
+    table.approvedByAdminName ||
+    table.approved_by_admin_name ||
+    table.approvalMeta?.admin_name ||
+    table.approval_meta?.admin_name ||
+    table.approvalMeta?.adminName ||
+    table.approval_meta?.adminName;
+
+  if (explicitAdminName && explicitAdminName.trim() && explicitAdminName.trim() !== 'System Admin') {
+    return explicitAdminName.trim();
+  }
+
+  // 3. Check if table was created/hosted by an Admin player
+  const hostId = table.hostId || table.host_id;
+  const hostName = table.hostName || table.host_name;
+
+  if (hostId === currentUser.id && (currentUser.isAdmin || currentUser.is_admin)) {
+    return currentUser.username || 'Admin';
+  }
+
+  const hostPlayer = playersList.find((p) => p.id === hostId);
+  if (hostPlayer && hostPlayer.isAdmin) {
+    return hostPlayer.username || hostName || 'Admin';
+  }
+
+  // 4. If table was approved/created by a player with approved host access, always show the active Admin's name
+  if (currentUser.isAdmin || currentUser.is_admin) {
+    return currentUser.username || 'Admin';
+  }
+
+  const firstAdmin = playersList.find((p) => p.isAdmin);
+  if (firstAdmin?.username) {
+    return firstAdmin.username;
+  }
+
+  return 'Admin';
+}
+
 export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   isOpen,
   onClose,
@@ -2049,7 +2111,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                   <div className="font-semibold text-emerald-300 truncate flex items-center gap-1">
                     <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
                     <span className="truncate">
-                      {selectedTableDetails.approvedByAdminName || selectedTableDetails.approvalMeta?.admin_name || 'System Admin'}
+                      {getApprovedByDisplayName(selectedTableDetails, currentUser, players)}
                     </span>
                   </div>
                 </div>

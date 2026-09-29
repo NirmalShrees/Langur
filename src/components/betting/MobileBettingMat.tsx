@@ -197,17 +197,31 @@ const MobileBettingMatComponent: React.FC<MobileBettingMatProps> = ({
 
               {/* Right: Net outcome and itemized breakdown dropdown trigger */}
               <div className="flex items-center gap-1.5 shrink-0 whitespace-nowrap">
-                {playerWonAmount > 0 ? (
-                  <span className="px-2 py-0.5 rounded-md bg-emerald-500 text-slate-950 font-mono font-black text-[10.5px] shadow-sm whitespace-nowrap animate-pulse">
-                    +{playerWonAmount.toLocaleString()} 🪙
-                  </span>
-                ) : totalUserBet > 0 ? (
-                  <span className="px-1.5 py-0.5 rounded-md bg-rose-950/70 border border-rose-800/60 text-rose-300 font-mono text-[10px] whitespace-nowrap">
-                    -{totalUserBet.toLocaleString()} 🪙
-                  </span>
-                ) : (
-                  <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap">No bet</span>
-                )}
+                {(() => {
+                  const netIncome = playerWonAmount - totalUserBet;
+                  if (totalUserBet === 0) {
+                    return <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap">No bet</span>;
+                  }
+                  if (netIncome > 0) {
+                    return (
+                      <span className="px-2 py-0.5 rounded-md bg-emerald-500 text-slate-950 font-mono font-black text-[10.5px] shadow-sm whitespace-nowrap animate-pulse">
+                        +{netIncome.toLocaleString()} 🪙
+                      </span>
+                    );
+                  }
+                  if (netIncome < 0) {
+                    return (
+                      <span className="px-1.5 py-0.5 rounded-md bg-rose-950/70 border border-rose-800/60 text-rose-300 font-mono text-[10px] whitespace-nowrap">
+                        -{Math.abs(netIncome).toLocaleString()} 🪙
+                      </span>
+                    );
+                  }
+                  return (
+                    <span className="px-1.5 py-0.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 font-mono text-[10px] whitespace-nowrap">
+                      0 🪙
+                    </span>
+                  );
+                })()}
 
                 {/* Receipt Button & Absolute Dropdown Popover */}
                 <div className="relative">
@@ -292,7 +306,7 @@ const MobileBettingMatComponent: React.FC<MobileBettingMatProps> = ({
                                   {bet > 0 ? `${bet.toLocaleString()} 🪙` : '0'}
                                 </span>
                                 <span className="text-center font-mono text-[8.5px]">
-                                  {count}x {isWin ? '✓' : isLoss ? (count === 1 ? '✗ (1x)' : '✗') : ''}
+                                  {count}x {isWin ? '✓' : isLoss ? '✗' : ''}
                                 </span>
                                 <span className={`text-right font-mono text-[9px] font-bold ${
                                   isWin

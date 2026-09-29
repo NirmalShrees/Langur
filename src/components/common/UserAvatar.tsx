@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 
 interface UserAvatarProps {
   avatar?: string;
@@ -15,7 +15,15 @@ export const UserAvatar: React.FC<UserAvatarProps> = ({
   className = '',
   imgClassName = '',
 }) => {
+  const [hasError, setHasError] = useState(false);
+
+  // Reset error state when avatar prop changes so user can switch back and forth freely
+  useEffect(() => {
+    setHasError(false);
+  }, [avatar]);
+
   const isImageUrl =
+    !hasError &&
     typeof avatar === 'string' &&
     (avatar.startsWith('http://') ||
       avatar.startsWith('https://') ||
@@ -30,6 +38,8 @@ export const UserAvatar: React.FC<UserAvatarProps> = ({
     custom: '',
   };
 
+  const initialLetter = (name || 'P').trim().charAt(0).toUpperCase() || '🎲';
+
   return (
     <div
       className={`relative inline-flex items-center justify-center overflow-hidden shrink-0 select-none ${
@@ -42,20 +52,15 @@ export const UserAvatar: React.FC<UserAvatarProps> = ({
           alt={name}
           className={`w-full h-full object-cover ${imgClassName}`}
           referrerPolicy="no-referrer"
-          crossOrigin="anonymous"
-          onError={(e) => {
-            // Fallback to initial if image fails
-            const target = e.currentTarget;
-            target.style.display = 'none';
-            const parent = target.parentElement;
-            if (parent) {
-              const fallback = document.createElement('span');
-              fallback.innerText = name ? name.charAt(0).toUpperCase() : '🎲';
-              fallback.className = 'font-bold text-amber-300';
-              parent.appendChild(fallback);
-            }
+          loading="eager"
+          onError={() => {
+            setHasError(true);
           }}
         />
+      ) : hasError ? (
+        <div className="w-full h-full bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center font-bold text-slate-950 font-serif leading-none">
+          {initialLetter}
+        </div>
       ) : (
         <span className="leading-none">{avatar || '🎲'}</span>
       )}

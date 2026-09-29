@@ -28,6 +28,7 @@ import {
   setUserPassword,
   hasUserConfiguredPassword,
 } from '../../services/authService.js';
+import { supabase } from '../../lib/supabase.js';
 
 interface ProfileModalProps {
   isOpen: boolean;
@@ -63,6 +64,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 }) => {
   const [nameInput, setNameInput] = useState(user.username || '');
   const [isEditingName, setIsEditingName] = useState(false);
+  const [fetchedGoogleAvatar, setFetchedGoogleAvatar] = useState<string | null>(null);
+  const [fetchedGoogleName, setFetchedGoogleName] = useState<string | null>(null);
 
   // Title expansion and custom title state
   const currentTitle = user.equipped?.title || 'Festival Player';
@@ -82,6 +85,52 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
 
+  // Detect and fetch Google DP dynamically from session if needed
+  useEffect(() => {
+    if (!isOpen) return;
+
+    if (user.avatar && user.avatar.startsWith('http')) {
+      localStorage.setItem('langur_burja_google_avatar', user.avatar);
+    }
+    if (user.googleAvatar) {
+      localStorage.setItem('langur_burja_google_avatar', user.googleAvatar);
+    }
+    if (user.googleName) {
+      localStorage.setItem('langur_burja_google_name', user.googleName);
+    }
+
+    if (supabase) {
+      supabase.auth.getSession().then(({ data }) => {
+        const authUser = data?.session?.user;
+        if (authUser) {
+          const meta = authUser.user_metadata;
+          const photo =
+            meta?.avatar_url ||
+            meta?.picture ||
+            authUser.identities?.[0]?.identity_data?.avatar_url ||
+            authUser.identities?.[0]?.identity_data?.picture;
+          const gName =
+            meta?.full_name ||
+            meta?.name ||
+            authUser.identities?.[0]?.identity_data?.full_name ||
+            authUser.identities?.[0]?.identity_data?.name;
+
+          if (photo) {
+            setFetchedGoogleAvatar(photo);
+            localStorage.setItem('langur_burja_google_avatar', photo);
+            if (!user.googleAvatar) {
+              onUpdateUser({ googleAvatar: photo });
+            }
+          }
+          if (gName) {
+            setFetchedGoogleName(gName);
+            localStorage.setItem('langur_burja_google_name', gName);
+          }
+        }
+      }).catch(() => {});
+    }
+  }, [isOpen, user.avatar, user.googleAvatar, user.googleName, onUpdateUser]);
+
   // Keep state synced with user prop
   useEffect(() => {
     if (user.username) setNameInput(user.username);
@@ -94,21 +143,25 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Detect Google Photo & Name from various sources
+  // Detect Google Photo & Name from all reliable sources
   const storedGoogleAvatar = localStorage.getItem('langur_burja_google_avatar');
   const storedGoogleName = localStorage.getItem('langur_burja_google_name');
 
-  const googlePhotoUrl =
-    user.googleAvatar ||
-    storedGoogleAvatar ||
-    (user.avatar?.startsWith('http') ? user.avatar : null) ||
-    (user.email ? 'https://lh3.googleusercontent.com/a/ACg8ocKz-google-user-avatar-default=s96-c' : null);
-
   const googleAccountName =
     user.googleName ||
+    fetchedGoogleName ||
     storedGoogleName ||
     (user.email === 'magarjack0@gmail.com' ? 'Jack Magar' : null) ||
     (user.email ? user.email.split('@')[0] : null);
+
+  const googlePhotoUrl =
+    user.googleAvatar ||
+    fetchedGoogleAvatar ||
+    storedGoogleAvatar ||
+    (user.avatar?.startsWith('http') ? user.avatar : null) ||
+    (user.email || user.authProvider === 'google'
+      ? `https://ui-avatars.com/api/?name=${encodeURIComponent(googleAccountName || user.username || 'User')}&background=4285F4&color=fff&bold=true&size=128`
+      : null);
 
   const isGooglePhotoSelected = Boolean(googlePhotoUrl && user.avatar === googlePhotoUrl);
   const isPasswordReady = hasUserConfiguredPassword(user.email || customEmail, user);
@@ -123,14 +176,24 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   };
 
   const handleSelectGoogleAvatar = () => {
-    if (!googlePhotoUrl) return;
+    const targetUrl = googlePhotoUrl || user.googleAvatar || storedGoogleAvatar;
+    if (!targetUrl) return;
     sound.playChipSound();
-    onUpdateUser({ avatar: googlePhotoUrl });
+    onUpdateUser({
+      avatar: targetUrl,
+      googleAvatar: targetUrl,
+      googleName: googleAccountName || user.googleName || undefined,
+    });
   };
 
   const handleSelectAvatar = (av: string) => {
     sound.playChipSound();
-    onUpdateUser({ avatar: av });
+    // Preserve googleAvatar and googleName so user can always switch back to Google DP anytime!
+    onUpdateUser({
+      avatar: av,
+      googleAvatar: googlePhotoUrl || user.googleAvatar || storedGoogleAvatar || undefined,
+      googleName: googleAccountName || user.googleName || storedGoogleName || undefined,
+    });
   };
 
   const handleSelectTitle = (title: string) => {
@@ -503,16 +566,16 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                       ? 'bg-amber-500/30 border-amber-400 scale-105 shadow-md ring-2 ring-amber-400'
                       : 'bg-slate-900 border-slate-800 hover:border-slate-700 hover:bg-slate-800/80'
                   }`}
-                  title="Select Google Account Photo (Default)"
+                  title="Select Google Account Photo"
                 >
-                  <img
-                    src={googlePhotoUrl}
-                    alt="Google Avatar"
-                    referrerPolicy="no-referrer"
-                    className="w-full h-full object-cover"
+                  <UserAvatar
+                    avatar={googlePhotoUrl}
+                    name={googleAccountName || user.username}
+                    size="custom"
+                    className="w-full h-full rounded-none"
                   />
-                  <div className="absolute bottom-0 right-0 p-0.5 bg-slate-950/90 rounded-tl">
-                    <svg className="w-2 h-2" viewBox="0 0 24 24">
+                  <div className="absolute bottom-0 right-0 p-0.5 bg-slate-950/90 rounded-tl z-10">
+                    <svg className="w-2.5 h-2.5" viewBox="0 0 24 24">
                       <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
                       <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
                       <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
