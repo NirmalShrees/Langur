@@ -80,12 +80,12 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
   return (
     <div
       id="notification-modal-backdrop"
-      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150 select-none"
+      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 md:p-6 animate-in fade-in duration-150 select-none"
       onClick={onClose}
     >
       <div
         id="notification-card"
-        className="w-full max-w-md h-[480px] max-h-[85vh] rounded-2xl bg-gradient-to-b from-[#0e1628] via-[#090e1c] to-[#04060d] border border-amber-500/40 shadow-2xl shadow-black/90 flex flex-col overflow-hidden text-slate-100"
+        className="w-full max-w-md sm:max-w-lg md:max-w-xl h-[480px] sm:h-[520px] md:h-[560px] max-h-[88vh] rounded-3xl bg-gradient-to-b from-[#0e1628] via-[#090e1c] to-[#04060d] border border-amber-500/40 shadow-2xl shadow-black/90 flex flex-col overflow-hidden text-slate-100"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

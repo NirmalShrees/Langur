@@ -303,12 +303,12 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   return (
     <div
       id="profile-modal-backdrop"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/90 backdrop-blur-sm animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 md:p-6 bg-black/90 backdrop-blur-sm animate-in fade-in duration-150 select-none"
       onClick={onClose}
     >
       <div
         id="profile-modal-content"
-        className="w-full max-w-md max-h-[92dvh] bg-gradient-to-b from-[#0d1526] via-[#090f1d] to-[#050811] border border-amber-500/45 rounded-3xl shadow-2xl shadow-black/90 relative overflow-hidden flex flex-col text-slate-100 select-none animate-in zoom-in-95 duration-150"
+        className="w-full max-w-md sm:max-w-lg md:max-w-xl max-h-[92dvh] bg-gradient-to-b from-[#0d1526] via-[#090f1d] to-[#050811] border border-amber-500/45 rounded-3xl shadow-2xl shadow-black/90 relative overflow-hidden flex flex-col text-slate-100 select-none animate-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Subtle decorative accents */}

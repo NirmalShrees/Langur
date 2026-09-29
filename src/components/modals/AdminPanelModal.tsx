@@ -292,19 +292,60 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     }
   }, []);
 
-  // Load data on open
+  // Load data on open & subscribe to live telemetry stream
   useEffect(() => {
     if (isOpen) {
       fetchPlayers();
       fetchTables();
       fetchTableRequestsData();
+      if (socket) {
+        socket.emit('admin:subscribe_live');
+      }
+    } else if (socket) {
+      socket.emit('admin:unsubscribe_live');
     }
-  }, [isOpen, fetchPlayers, fetchTables, fetchTableRequestsData]);
+  }, [isOpen, socket, fetchPlayers, fetchTables, fetchTableRequestsData]);
 
-  // Real-time socket sync for live player coin updates across sessions
+  // Real-time socket sync for live tables, god mode view, player presence & coin updates
   useEffect(() => {
-    if (!socket) return;
+    if (!socket || !isOpen) return;
 
+    // 1. Authoritative 1-second live tables synchronization
+    const handleLiveTablesSync = (payload: { tables: TableAdminData[] }) => {
+      if (Array.isArray(payload?.tables)) {
+        setTables(payload.tables);
+        // Instant sync for active God Mode Surveillance
+        if (selectedGodTable) {
+          const fresh = payload.tables.find((t) => t.id === selectedGodTable.id);
+          if (fresh) {
+            setSelectedGodTable(fresh);
+          }
+        }
+      }
+    };
+
+    // 2. Authoritative 2-second live players synchronization
+    const handleLivePlayersSync = (payload: { players: PlayerAdminData[] }) => {
+      if (Array.isArray(payload?.players)) {
+        setPlayers(payload.players);
+        // Instant sync for active Coin Adjustment Panel
+        if (selectedPlayer) {
+          const fresh = payload.players.find((p) => p.id === selectedPlayer.id);
+          if (fresh) {
+            setSelectedPlayer(fresh);
+          }
+        }
+      }
+    };
+
+    // 3. Instant Presence Change Relay
+    const handlePresenceChanged = (payload: { userId: string; presence: 'online' | 'in_table' | 'offline'; username?: string; avatar?: string; coins?: number }) => {
+      setPlayers((prev) =>
+        prev.map((p) => (p.id === payload.userId ? { ...p, presence: payload.presence } : p))
+      );
+    };
+
+    // 4. Instant Coin Adjustment Relay
     const handleCoinsChanged = (payload: { userId: string; coins: number }) => {
       setPlayers((prev) =>
         prev.map((p) => (p.id === payload.userId ? { ...p, coins: payload.coins } : p))
@@ -316,6 +357,15 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
 
     const handleRoomsUpdated = () => {
       fetchTables();
+    };
+
+    const handleTableCreated = () => {
+      fetchTables();
+    };
+
+    const handleTableApproved = () => {
+      fetchTables();
+      fetchTableRequestsData();
     };
 
     const handleTableRequestReceived = (req: any) => {
@@ -332,22 +382,35 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
       setTables((prev) =>
         prev.map((t) => (t.id === payload.roomId ? { ...t, avar: payload.avar } : t))
       );
+      if (selectedGodTable && selectedGodTable.id === payload.roomId) {
+        setSelectedGodTable((prev) => (prev ? { ...prev, avar: payload.avar } : null));
+      }
     };
 
+    socket.on('admin:live_tables_sync', handleLiveTablesSync);
+    socket.on('admin:live_players_sync', handleLivePlayersSync);
+    socket.on('user:presence_changed', handlePresenceChanged);
     socket.on('user:coins_changed', handleCoinsChanged);
     socket.on('rooms:updated', handleRoomsUpdated);
+    socket.on('table:created', handleTableCreated);
+    socket.on('table:approved', handleTableApproved);
     socket.on('admin:table_request', handleTableRequestReceived);
     socket.on('admin:table_requests_updated', handleTableRequestsUpdated);
     socket.on('admin:table_avar_updated', handleTableAvarUpdated);
 
     return () => {
+      socket.off('admin:live_tables_sync', handleLiveTablesSync);
+      socket.off('admin:live_players_sync', handleLivePlayersSync);
+      socket.off('user:presence_changed', handlePresenceChanged);
       socket.off('user:coins_changed', handleCoinsChanged);
       socket.off('rooms:updated', handleRoomsUpdated);
+      socket.off('table:created', handleTableCreated);
+      socket.off('table:approved', handleTableApproved);
       socket.off('admin:table_request', handleTableRequestReceived);
       socket.off('admin:table_requests_updated', handleTableRequestsUpdated);
       socket.off('admin:table_avar_updated', handleTableAvarUpdated);
     };
-  }, [socket, selectedPlayer, fetchTables, onShowToast]);
+  }, [socket, isOpen, selectedPlayer, selectedGodTable, fetchTables, fetchTableRequestsData, onShowToast]);
 
   // Handle Admin Decision on Table Request with message & validity hours
   const handleDecideRequest = async (decision: 'approve' | 'decline') => {

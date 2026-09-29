@@ -118,13 +118,13 @@ export const TableStatsModal: React.FC<TableStatsModalProps> = ({
   return (
     <div
       id="table-stats-backdrop"
-      className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overscroll-contain animate-in fade-in duration-100"
+      className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 md:p-6 overscroll-contain animate-in fade-in duration-100"
       style={{ willChange: 'opacity' }}
       onClick={onClose}
     >
       <div
         id="table-stats-modal"
-        className="w-full max-w-xl h-[560px] max-h-[90vh] bg-gradient-to-b from-[#0e1424] via-[#090d18] to-[#060810] border border-amber-500/40 rounded-2xl shadow-2xl overflow-hidden flex flex-col text-slate-100 animate-in zoom-in-95 duration-100"
+        className="w-full max-w-xl md:max-w-2xl lg:max-w-3xl h-[560px] md:h-[620px] max-h-[90vh] bg-gradient-to-b from-[#0e1424] via-[#090d18] to-[#060810] border border-amber-500/40 rounded-2xl shadow-2xl overflow-hidden flex flex-col text-slate-100 animate-in zoom-in-95 duration-100"
         style={{ transform: 'translateZ(0)', willChange: 'transform' }}
         onClick={(e) => e.stopPropagation()}
       >

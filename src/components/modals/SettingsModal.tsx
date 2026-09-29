@@ -75,9 +75,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   return (
     <div
       id="game-settings-modal-overlay"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-3 sm:p-4 animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-3 sm:p-4 md:p-6 animate-in fade-in duration-150 select-none"
     >
-      <div className="relative w-full max-w-md bg-slate-900 rounded-3xl border border-amber-900/40 shadow-2xl p-4 sm:p-5 overflow-hidden flex flex-col h-[520px] max-h-[90vh]">
+      <div className="relative w-full max-w-md sm:max-w-lg md:max-w-xl bg-slate-900 rounded-3xl border border-amber-900/40 shadow-2xl p-4 sm:p-5 md:p-6 overflow-hidden flex flex-col h-[520px] sm:h-[550px] md:h-[580px] max-h-[90vh]">
         {/* Modal Header */}
         <div className="flex items-center justify-between pb-3 border-b border-slate-800 shrink-0">
           <div className="flex items-center gap-2.5">

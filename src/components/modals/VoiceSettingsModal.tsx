@@ -72,13 +72,13 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
   return (
     <div
       id="voice-settings-backdrop"
-      className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-3 sm:p-4 overscroll-contain animate-in fade-in duration-100"
+      className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-3 sm:p-4 md:p-6 overscroll-contain animate-in fade-in duration-100 select-none"
       style={{ willChange: 'opacity' }}
       onClick={onClose}
     >
       <div
         id="voice-settings-modal"
-        className="w-full max-w-md bg-gradient-to-b from-[#0f172a] via-[#090e17] to-[#04070e] border border-amber-500/35 rounded-2xl shadow-2xl p-4 sm:p-5 text-slate-100 animate-in zoom-in-95 duration-100 overflow-hidden flex flex-col max-h-[85vh]"
+        className="w-full max-w-md sm:max-w-lg bg-gradient-to-b from-[#0f172a] via-[#090e17] to-[#04070e] border border-amber-500/35 rounded-2xl shadow-2xl p-4 sm:p-5 md:p-6 text-slate-100 animate-in zoom-in-95 duration-100 overflow-hidden flex flex-col max-h-[85vh]"
         style={{ transform: 'translateZ(0)', willChange: 'transform' }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -167,19 +167,18 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
               </button>
             </div>
             <select
-              value={selectedDevice}
+              value={selectedDevice || 'default'}
               onChange={handleDeviceChange}
               className="w-full bg-slate-950 border border-slate-700 hover:border-slate-600 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-400 transition-colors"
             >
-              {voiceState.inputDevices.length === 0 ? (
-                <option value="">System Microphone (Active)</option>
-              ) : (
-                voiceState.inputDevices.map((device, idx) => (
+              <option value="default">Default System Microphone (Active)</option>
+              {voiceState.inputDevices
+                .filter((d) => d.deviceId && d.deviceId !== 'default')
+                .map((device, idx) => (
                   <option key={device.deviceId || idx} value={device.deviceId}>
-                    {device.label || (device.deviceId === 'default' ? 'Default Microphone' : `Microphone ${idx + 1}`)}
+                    {device.label || `Microphone ${idx + 1}`}
                   </option>
-                ))
-              )}
+                ))}
             </select>
           </div>
 

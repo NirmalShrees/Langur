@@ -80,7 +80,7 @@ export const CoinTreasuryModal: React.FC<CoinTreasuryModalProps> = ({
   return (
     <div
       id="coin-treasury-modal-backdrop"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 md:p-6 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200 select-none"
       onClick={(e) => {
         if (e.target === e.currentTarget) {
           sound.playChipSound();
@@ -90,7 +90,7 @@ export const CoinTreasuryModal: React.FC<CoinTreasuryModalProps> = ({
     >
       <div
         id="coin-treasury-panel"
-        className="w-full max-w-[390px] h-[460px] max-h-[90dvh] bg-gradient-to-b from-slate-900 via-slate-950 to-slate-950 border border-amber-500/40 rounded-2xl shadow-2xl shadow-black/80 overflow-hidden flex flex-col text-slate-100 animate-in zoom-in-95 duration-200"
+        className="w-full max-w-[420px] sm:max-w-md md:max-w-lg h-[480px] sm:h-[520px] md:h-[550px] max-h-[90dvh] bg-gradient-to-b from-slate-900 via-slate-950 to-slate-950 border border-amber-500/40 rounded-3xl shadow-2xl shadow-black/80 overflow-hidden flex flex-col text-slate-100 animate-in zoom-in-95 duration-200"
       >
         {/* Modal Header */}
         <div className="px-3.5 py-2.5 bg-gradient-to-r from-amber-950/60 via-slate-900 to-amber-950/60 border-b border-amber-500/30 flex items-center justify-between shrink-0">

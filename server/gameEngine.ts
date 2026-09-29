@@ -703,22 +703,35 @@ export class GameEngine {
     );
     const remainingPlayerIds = remainingRealPlayers.map((p) => p.id);
 
-    // If no real players remain at the table (0 real players), delete the table (unless it is the permanent public pavilion)
+    // If no real players remain at the table (0 real players):
+    // Check if table validity has actually expired. If unexpired, preserve table in 'waiting' phase.
     if (remainingRealPlayers.length === 0) {
-      if (roomId === 'public-royal-table') {
-        room.hostId = 'system_host';
-        room.phase = 'waiting';
-        room.tableBets = { jhanda: 0, burja: 0, itta: 0, paan: 0, hukum: 0, chidi: 0 };
-        syncTableStateToSupabaseServer(room).catch(() => {});
-        this.io.to(`room:${roomId}`).emit('room:player_left', { userId, roomState: room, tableClosed: false });
+      const now = Date.now();
+      const expiresMs = room.expiresAt
+        ? typeof room.expiresAt === 'number'
+          ? room.expiresAt
+          : new Date(room.expiresAt).getTime()
+        : 0;
+      const isExpired = expiresMs > 0 && now >= expiresMs;
+
+      if (isExpired && roomId !== 'public-royal-table') {
+        console.log(`[GameEngine] Table ${room.name} (${room.code} / ${room.id}) validity period expired. Disbanding.`);
+        this.destroyRoom(roomId);
+        this.io.to(`room:${roomId}`).emit('room:player_left', { userId, roomState: room, tableClosed: true });
+        this.io.to(`room:${roomId}`).emit('room:disbanded', { reason: 'Table validity period has expired.' });
         this.io.emit('rooms:updated', { rooms: this.getPublicRooms() });
         return;
       }
 
-      // Automatically delete and purge table from memory and Supabase
-      this.destroyRoom(roomId);
-      this.io.to(`room:${roomId}`).emit('room:player_left', { userId, roomState: room, tableClosed: true });
-      this.io.to(`room:${roomId}`).emit('room:disbanded', { reason: 'No real players remain. Table closed.' });
+      // Table is still valid (e.g. within 2h, 6h, 24h, 7d). Keep table alive for invite links & returning players!
+      if (roomId === 'public-royal-table') {
+        room.hostId = 'system_host';
+      }
+      room.phase = 'waiting';
+      room.timer = room.settings.bettingDuration;
+      room.tableBets = { jhanda: 0, burja: 0, itta: 0, paan: 0, hukum: 0, chidi: 0 };
+      syncTableStateToSupabaseServer(room).catch(() => {});
+      this.io.to(`room:${roomId}`).emit('room:player_left', { userId, roomState: room, tableClosed: false });
       this.io.emit('rooms:updated', { rooms: this.getPublicRooms() });
       return;
     }

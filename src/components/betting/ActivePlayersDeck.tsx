@@ -151,12 +151,12 @@ export const ActivePlayersDeck: React.FC<ActivePlayersDeckProps> = React.memo(({
   return (
     <>
       {/* Top Status Header with Table Info & Live Ping Latency Indicator directly above Avatars */}
-      <div className="w-full flex items-center justify-between px-1 mb-1 text-[9.5px] font-mono select-none">
+      <div className="w-full flex items-center justify-between px-1 mb-1 text-[9.5px] sm:text-[10.5px] md:text-xs font-mono select-none">
         {/* Left: Table Status */}
-        <div className="flex items-center gap-1.5 text-slate-400 min-w-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 text-slate-400 min-w-0">
           <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
           <span
-            className="font-semibold text-amber-200/95 tracking-wide text-[9.5px] truncate max-w-[130px] sm:max-w-[180px]"
+            className="font-semibold text-amber-200/95 tracking-wide text-[9.5px] sm:text-[10.5px] md:text-xs truncate max-w-[130px] sm:max-w-[200px] md:max-w-[280px]"
             title={tableName || 'Royal Pavilion'}
           >
             {formattedTableName}
@@ -166,7 +166,7 @@ export const ActivePlayersDeck: React.FC<ActivePlayersDeckProps> = React.memo(({
         </div>
 
         {/* Top Right: Voice Chat Button & Network Ping Indicator */}
-        <div className="flex items-center gap-1.5 relative">
+        <div className="flex items-center gap-1.5 sm:gap-2 relative">
           {/* Voice Chat Button with Dropdown/Tooltip Popover */}
           <VoiceChatBar
             roomId={roomId}
@@ -183,7 +183,7 @@ export const ActivePlayersDeck: React.FC<ActivePlayersDeckProps> = React.memo(({
                 ? `Network Latency: ${ping}ms (${ping < 90 ? 'Optimal' : ping < 180 ? 'Good' : 'High'})`
                 : 'Connecting to network...'
             }
-            className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[9px] font-mono transition-all duration-300 shadow-sm ${
+            className={`flex items-center gap-1 px-1.5 py-0.5 sm:px-2 sm:py-0.5 rounded-md border text-[9px] sm:text-[10px] md:text-[10.5px] font-mono transition-all duration-300 shadow-sm ${
               !isOnline
                 ? 'bg-rose-950/80 border-rose-500/50 text-rose-300'
                 : ping === null
@@ -197,7 +197,7 @@ export const ActivePlayersDeck: React.FC<ActivePlayersDeckProps> = React.memo(({
           >
             {!isOnline ? (
               <>
-                <WifiOff className="w-2.5 h-2.5 text-rose-400 shrink-0" />
+                <WifiOff className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-rose-400 shrink-0" />
                 <span className="font-bold text-rose-300">Offline</span>
               </>
             ) : ping !== null ? (
@@ -213,7 +213,7 @@ export const ActivePlayersDeck: React.FC<ActivePlayersDeckProps> = React.memo(({
                       : 'bg-rose-400 shadow-[0_0_5px_rgba(244,63,94,0.9)]'
                   }`}
                 />
-                <Activity className="w-2.5 h-2.5 opacity-80 shrink-0" />
+                <Activity className="w-2.5 h-2.5 sm:w-3 sm:h-3 opacity-80 shrink-0" />
                 <span className="tabular-nums font-bold">
                   {ping}ms
                 </span>
@@ -231,13 +231,13 @@ export const ActivePlayersDeck: React.FC<ActivePlayersDeckProps> = React.memo(({
       {/* Compact Elegant Table Pavilion Ribbon */}
       <div
         id="active-players-compact-pavilion"
-        className="w-full flex items-center justify-between px-2 sm:px-2.5 py-1 rounded-xl bg-gradient-to-r from-[#060913] via-[#0c1222] to-[#060913] border border-amber-500/20 shadow-sm select-none shrink-0 overflow-visible"
+        className="w-full flex items-center justify-between px-2 sm:px-3 md:px-4 py-1 sm:py-1.5 rounded-xl md:rounded-2xl bg-gradient-to-r from-[#060913] via-[#0c1222] to-[#060913] border border-amber-500/20 shadow-sm select-none shrink-0 overflow-visible"
       >
         {/* Top Left: Sleek Ready Button & Round Countdown Timer */}
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           {phase === 'waiting' ? (
-            <div className="h-[25px] flex items-center gap-1.5 px-2 rounded-lg bg-amber-500/15 border border-amber-400/40 text-amber-300 text-[10.5px] font-bold shrink-0 animate-pulse">
-              <Crown className="w-3 h-3 text-amber-400" />
+            <div className="h-[25px] sm:h-[28px] md:h-[30px] flex items-center gap-1.5 px-2 sm:px-2.5 rounded-lg md:rounded-xl bg-amber-500/15 border border-amber-400/40 text-amber-300 text-[10.5px] sm:text-xs font-bold shrink-0 animate-pulse">
+              <Crown className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-400" />
               <span>Waiting for Leader...</span>
             </div>
           ) : phase === 'betting' ? (
@@ -248,14 +248,14 @@ export const ActivePlayersDeck: React.FC<ActivePlayersDeckProps> = React.memo(({
                   id="compact-deck-ready-btn"
                   onClick={onToggleUserReady}
                   title={isUserReady ? 'Status: Ready for next roll' : 'Click to toggle ready status'}
-                  className={`w-[66px] h-[25px] rounded-lg text-[10px] font-mono font-bold transition-all shadow-sm active:scale-95 flex items-center justify-center gap-1 border shrink-0 ${
+                  className={`w-[66px] sm:w-[76px] md:w-[84px] h-[25px] sm:h-[28px] md:h-[30px] rounded-lg md:rounded-xl text-[10px] sm:text-[11px] md:text-xs font-mono font-bold transition-all shadow-sm active:scale-95 flex items-center justify-center gap-1 border shrink-0 cursor-pointer ${
                     isUserReady
                       ? 'bg-emerald-500 border-emerald-300 text-slate-950 shadow-emerald-500/25 font-black'
                       : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border-amber-500/40'
                   }`}
                 >
                   {isUserReady ? (
-                    <CheckCircle2 className="w-3 h-3 fill-slate-950 text-emerald-400 shrink-0" />
+                    <CheckCircle2 className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-slate-950 text-emerald-400 shrink-0" />
                   ) : (
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
                   )}
@@ -266,7 +266,7 @@ export const ActivePlayersDeck: React.FC<ActivePlayersDeckProps> = React.memo(({
               {/* Countdown Timer Badge */}
               <div
                 id="active-countdown-badge"
-                className="h-[25px] min-w-[58px] flex items-center justify-center px-2 rounded-lg bg-amber-950/50 border border-amber-500/35 text-amber-300 font-mono text-[10.5px] font-bold shadow-inner shrink-0 select-none overflow-visible"
+                className="h-[25px] sm:h-[28px] md:h-[30px] min-w-[58px] sm:min-w-[66px] md:min-w-[74px] flex items-center justify-center px-2 sm:px-2.5 rounded-lg md:rounded-xl bg-amber-950/50 border border-amber-500/35 text-amber-300 font-mono text-[10.5px] sm:text-xs font-bold shadow-inner shrink-0 select-none overflow-visible"
               >
                 <div
                   className={`flex items-center gap-1 origin-center ${
@@ -274,7 +274,7 @@ export const ActivePlayersDeck: React.FC<ActivePlayersDeckProps> = React.memo(({
                   }`}
                 >
                   <Clock
-                    className={`w-3 h-3 shrink-0 ${
+                    className={`w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0 ${
                       bettingTimer <= 4 ? 'text-rose-400' : 'text-amber-400'
                     }`}
                   />
@@ -289,12 +289,12 @@ export const ActivePlayersDeck: React.FC<ActivePlayersDeckProps> = React.memo(({
               </div>
             </>
           ) : phase === 'rolling' ? (
-            <div className="h-[25px] flex items-center gap-1 px-2 rounded-lg bg-amber-500/15 border border-amber-400/30 text-amber-300 text-[10.5px] font-bold animate-pulse shrink-0">
-              <Sparkles className="w-3 h-3 text-amber-400 animate-spin" />
+            <div className="h-[25px] sm:h-[28px] md:h-[30px] flex items-center gap-1 px-2 sm:px-2.5 rounded-lg md:rounded-xl bg-amber-500/15 border border-amber-400/30 text-amber-300 text-[10.5px] sm:text-xs font-bold animate-pulse shrink-0">
+              <Sparkles className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-400 animate-spin" />
               <span>Rolling...</span>
             </div>
           ) : (
-            <div className="h-[25px] flex items-center gap-1.5 px-2 rounded-lg bg-emerald-500/15 border border-emerald-400/30 text-emerald-300 text-[10px] font-bold shrink-0">
+            <div className="h-[25px] sm:h-[28px] md:h-[30px] flex items-center gap-1.5 px-2 sm:px-2.5 rounded-lg md:rounded-xl bg-emerald-500/15 border border-emerald-400/30 text-emerald-300 text-[10px] sm:text-xs font-bold shrink-0">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
               <span>Round Results</span>
             </div>
@@ -302,9 +302,9 @@ export const ActivePlayersDeck: React.FC<ActivePlayersDeckProps> = React.memo(({
         </div>
 
         {/* Right: Round Tag, Avatars Cluster, & Pool */}
-        <div className="flex items-center gap-1.5 xs:gap-2 min-w-0">
+        <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
           {/* Pool Counter */}
-          <div className="hidden xs:flex items-center gap-1 font-mono text-[10px] text-slate-300 shrink-0">
+          <div className="hidden xs:flex items-center gap-1 font-mono text-[10px] sm:text-[11px] md:text-xs text-slate-300 shrink-0">
             <span className="text-slate-500">Pool:</span>
             <span className="font-bold text-amber-200 truncate">{tablePool.toLocaleString()} 🪙</span>
           </div>
@@ -312,7 +312,7 @@ export const ActivePlayersDeck: React.FC<ActivePlayersDeckProps> = React.memo(({
           {/* Circular Avatars Cluster */}
           <div
             onClick={handleOpenStats}
-            className="flex items-center -space-x-1.5 cursor-pointer group shrink-0"
+            className="flex items-center -space-x-1.5 sm:-space-x-2 cursor-pointer group shrink-0"
             title="Click to view all table players and win rates"
           >
             {visiblePlayers.map((player) => {
@@ -336,7 +336,7 @@ export const ActivePlayersDeck: React.FC<ActivePlayersDeckProps> = React.memo(({
                   )}
 
                   <div
-                    className={`w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-full flex items-center justify-center text-sm shadow-sm border transition-all duration-150 group-hover/avatar:scale-110 overflow-hidden relative z-10 ${
+                    className={`w-7 h-7 sm:w-8 sm:h-8 md:w-8.5 md:h-8.5 rounded-full flex items-center justify-center text-sm shadow-sm border transition-all duration-150 group-hover/avatar:scale-110 overflow-hidden relative z-10 ${
                       isSpeaking
                         ? 'bg-emerald-500/30 border-emerald-300 ring-2.5 ring-emerald-400 shadow-[0_0_14px_rgba(52,211,153,0.9)] animate-speaking-ring scale-110'
                         : isDisconnected
@@ -412,7 +412,7 @@ export const ActivePlayersDeck: React.FC<ActivePlayersDeckProps> = React.memo(({
                   e.stopPropagation();
                   handleOpenStats();
                 }}
-                className="w-7 h-7 rounded-full bg-slate-900/90 hover:bg-slate-800 border border-amber-500/40 flex items-center justify-center text-[10px] font-mono font-black text-amber-300 shadow-sm transition-transform hover:scale-110 shrink-0"
+                className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-slate-900/90 hover:bg-slate-800 border border-amber-500/40 flex items-center justify-center text-[10px] sm:text-xs font-mono font-black text-amber-300 shadow-sm transition-transform hover:scale-110 shrink-0 cursor-pointer"
                 title={`${overflowCount} more players at table`}
               >
                 +{overflowCount}
@@ -423,7 +423,7 @@ export const ActivePlayersDeck: React.FC<ActivePlayersDeckProps> = React.memo(({
           {/* Session Round Tag (e.g. #1, #2, etc) */}
           <div
             title={`Game Session Round #${roundNumber}`}
-            className="px-2 py-0.5 rounded-lg bg-amber-950/60 border border-amber-500/35 text-amber-200 font-mono font-bold text-[10px] shrink-0 shadow-sm"
+            className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg bg-amber-950/60 border border-amber-500/35 text-amber-200 font-mono font-bold text-[10px] sm:text-xs shrink-0 shadow-sm"
           >
             #{roundNumber}
           </div>

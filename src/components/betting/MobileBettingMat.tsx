@@ -195,29 +195,21 @@ const MobileBettingMatComponent: React.FC<MobileBettingMatProps> = ({
                 )}
               </div>
 
-              {/* Right: Net outcome and itemized breakdown dropdown trigger */}
+              {/* Right: Won amount outcome and itemized breakdown dropdown trigger */}
               <div className="flex items-center gap-1.5 shrink-0 whitespace-nowrap">
                 {(() => {
-                  const netIncome = playerWonAmount - totalUserBet;
                   if (totalUserBet === 0) {
                     return <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap">No bet</span>;
                   }
-                  if (netIncome > 0) {
+                  if (playerWonAmount > 0) {
                     return (
                       <span className="px-2 py-0.5 rounded-md bg-emerald-500 text-slate-950 font-mono font-black text-[10.5px] shadow-sm whitespace-nowrap animate-pulse">
-                        +{netIncome.toLocaleString()} 🪙
-                      </span>
-                    );
-                  }
-                  if (netIncome < 0) {
-                    return (
-                      <span className="px-1.5 py-0.5 rounded-md bg-rose-950/70 border border-rose-800/60 text-rose-300 font-mono text-[10px] whitespace-nowrap">
-                        -{Math.abs(netIncome).toLocaleString()} 🪙
+                        +{playerWonAmount.toLocaleString()} 🪙
                       </span>
                     );
                   }
                   return (
-                    <span className="px-1.5 py-0.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 font-mono text-[10px] whitespace-nowrap">
+                    <span className="px-1.5 py-0.5 rounded-md bg-slate-800/90 border border-slate-700/80 text-slate-400 font-mono text-[10px] whitespace-nowrap">
                       0 🪙
                     </span>
                   );
@@ -240,42 +232,44 @@ const MobileBettingMatComponent: React.FC<MobileBettingMatProps> = ({
                     <Receipt className="w-3 h-3" />
                   </button>
 
-                  {/* Absolute Dropdown Popover (Compact, zero-lag, tight layout) */}
+                  {/* Itemized Breakdown Modal / Dialog (Unclipped, responsive across all screen sizes) */}
                   {showDetailedReceipt && (
-                    <>
-                      {/* Invisible dismissal overlay */}
+                    <div
+                      id="itemized-breakdown-overlay"
+                      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-xs overscroll-contain animate-in fade-in duration-150 select-none"
+                      onClick={() => setShowDetailedReceipt(false)}
+                    >
                       <div
-                        className="fixed inset-0 z-40 bg-black/40"
-                        onClick={() => setShowDetailedReceipt(false)}
-                      />
-                      <div
-                        className="absolute right-0 top-full mt-1 w-72 max-w-[calc(100vw-1rem)] z-50 p-2 rounded-xl border border-amber-500/50 bg-[#090e1d] shadow-2xl text-[10px] font-mono select-none"
+                        id="itemized-breakdown-card"
+                        className="relative w-full max-w-xs sm:max-w-sm md:max-w-md max-h-[85vh] p-3.5 sm:p-4 rounded-2xl border border-amber-500/50 bg-gradient-to-b from-[#0f172a] via-[#090e1d] to-[#04060d] shadow-2xl text-[11px] font-mono select-none flex flex-col overflow-hidden animate-in zoom-in-95 duration-150"
+                        onClick={(e) => e.stopPropagation()}
                       >
                         {/* Header */}
-                        <div className="flex items-center justify-between pb-1 mb-1 border-b border-amber-500/25 font-sans">
-                          <span className="text-[10.5px] font-bold text-amber-200 flex items-center gap-1">
-                            <Receipt className="w-3 h-3 text-amber-400" />
-                            Itemized Breakdown
+                        <div className="flex items-center justify-between pb-2 mb-2 border-b border-amber-500/30 font-sans shrink-0">
+                          <span className="text-xs sm:text-sm font-bold text-amber-200 flex items-center gap-1.5">
+                            <Receipt className="w-4 h-4 text-amber-400" />
+                            <span>Round Itemized Breakdown</span>
                           </span>
                           <button
                             type="button"
                             onClick={() => setShowDetailedReceipt(false)}
-                            className="text-slate-400 hover:text-slate-200 text-[10px] w-4 h-4 flex items-center justify-center rounded hover:bg-slate-800 cursor-pointer font-sans"
+                            className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white cursor-pointer transition-colors"
+                            title="Close breakdown"
                           >
-                            ✕
+                            <X className="w-4 h-4" />
                           </button>
                         </div>
 
                         {/* Column Headers */}
-                        <div className="grid grid-cols-4 text-slate-400 text-[8.5px] pb-0.5 border-b border-slate-800/80 mb-1 font-sans font-bold px-1">
+                        <div className="grid grid-cols-4 text-slate-400 text-[9px] sm:text-[10px] pb-1 border-b border-slate-800/80 mb-1.5 font-sans font-bold px-1 shrink-0">
                           <span>Symbol</span>
                           <span className="text-right">Bet</span>
                           <span className="text-center">Roll</span>
                           <span className="text-right">Outcome</span>
                         </div>
 
-                        {/* Itemized Rows */}
-                        <div className="space-y-0.5 max-h-36 overflow-y-auto custom-scrollbar pr-0.5">
+                        {/* Itemized Rows (Scrollable with ample space) */}
+                        <div className="space-y-1 max-h-[38vh] overflow-y-auto custom-scrollbar pr-1 flex-1 min-h-0">
                           {SYMBOL_KEYS.map((symKey) => {
                             const bet = userBets[symKey] || 0;
                             const count = lastResult.symbolCounts[symKey] || 0;
@@ -288,7 +282,7 @@ const MobileBettingMatComponent: React.FC<MobileBettingMatProps> = ({
                             return (
                               <div
                                 key={symKey}
-                                className={`grid grid-cols-4 items-center py-0.5 px-1 rounded border text-[9px] ${
+                                className={`grid grid-cols-4 items-center py-1 px-1.5 rounded-lg border text-[9.5px] sm:text-[10px] ${
                                   isWin
                                     ? 'text-emerald-200 font-bold bg-emerald-950/60 border-emerald-500/40'
                                     : isLoss
@@ -296,19 +290,19 @@ const MobileBettingMatComponent: React.FC<MobileBettingMatProps> = ({
                                     : 'text-slate-400 bg-slate-900/50 border-slate-800/60'
                                 }`}
                               >
-                                <span className="flex items-center gap-1 min-w-0">
-                                  <div className="w-3 h-3 rounded-sm overflow-hidden flex items-center justify-center shrink-0 bg-[#FAF4D0]">
+                                <span className="flex items-center gap-1.5 min-w-0">
+                                  <div className="w-3.5 h-3.5 rounded overflow-hidden flex items-center justify-center shrink-0 bg-[#FAF4D0]">
                                     <img src={getSymbolImageDataUrl(symKey)} alt={LANGUR_BURJA_SYMBOLS[symKey].name} className="w-full h-full object-cover scale-[1.34]" />
                                   </div>
-                                  <span className="truncate text-[9px] font-sans font-medium">{LANGUR_BURJA_SYMBOLS[symKey].name}</span>
+                                  <span className="truncate text-[9.5px] sm:text-[10px] font-sans font-semibold">{LANGUR_BURJA_SYMBOLS[symKey].name}</span>
                                 </span>
-                                <span className="text-right font-mono text-[9px]">
+                                <span className="text-right font-mono">
                                   {bet > 0 ? `${bet.toLocaleString()} 🪙` : '0'}
                                 </span>
-                                <span className="text-center font-mono text-[8.5px]">
+                                <span className="text-center font-mono text-[9px]">
                                   {count}x {isWin ? '✓' : isLoss ? '✗' : ''}
                                 </span>
-                                <span className={`text-right font-mono text-[9px] font-bold ${
+                                <span className={`text-right font-mono font-bold ${
                                   isWin
                                     ? 'text-emerald-300'
                                     : isLoss
@@ -327,13 +321,21 @@ const MobileBettingMatComponent: React.FC<MobileBettingMatProps> = ({
                         </div>
 
                         {/* Summary Totals */}
-                        <div className="mt-1.5 pt-1.5 border-t border-amber-500/20 flex flex-col gap-0.5 text-[9px] font-sans">
-                          <div className="flex items-center justify-between font-bold">
+                        <div className="mt-2 pt-2 border-t border-amber-500/30 flex flex-col gap-1 text-[10px] sm:text-[11px] font-sans shrink-0 bg-slate-950/80 p-2 sm:p-2.5 rounded-xl border border-slate-800/80">
+                          <div className="flex items-center justify-between text-slate-300">
+                            <span>Total Wagered:</span>
+                            <span className="font-mono text-slate-200 font-semibold">{totalUserBet.toLocaleString()} 🪙</span>
+                          </div>
+                          <div className="flex items-center justify-between text-slate-300">
+                            <span>Total Payout:</span>
+                            <span className="font-mono text-emerald-400 font-bold">{playerWonAmount > 0 ? `+${playerWonAmount.toLocaleString()} 🪙` : '0 🪙'}</span>
+                          </div>
+                          <div className="flex items-center justify-between font-bold pt-1.5 border-t border-slate-800">
                             <span className="text-amber-200">Net Profit / Loss:</span>
                             {(() => {
                               const net = playerWonAmount - totalUserBet;
                               return (
-                                <span className={`font-mono text-[10.5px] ${
+                                <span className={`font-mono text-xs sm:text-sm font-black ${
                                   net > 0
                                     ? 'text-emerald-400'
                                     : net < 0
@@ -345,12 +347,12 @@ const MobileBettingMatComponent: React.FC<MobileBettingMatProps> = ({
                               );
                             })()}
                           </div>
-                          <div className="text-[7.5px] text-amber-200/60 font-sans italic text-center mt-0.5">
-                            Rule: 1x & 0x match = Loss. 2x+ match = Win.
+                          <div className="text-[8px] sm:text-[9px] text-amber-200/70 font-sans italic text-center mt-1">
+                            Rule: 0x or 1x match = Loss. 2x to 6x match = Win (1x Bet + Count x Bet).
                           </div>
                         </div>
                       </div>
-                    </>
+                    </div>
                   )}
                 </div>
               </div>
@@ -390,7 +392,7 @@ const MobileBettingMatComponent: React.FC<MobileBettingMatProps> = ({
       </div>
 
       {/* The 6 Symbols: Authentic 3 Columns x 2 Rows Prominent Grid */}
-      <div className="relative z-10 grid grid-cols-3 grid-rows-2 gap-1.5 sm:gap-2 flex-1 min-h-0 my-0.5">
+      <div className="relative z-10 grid grid-cols-3 grid-rows-2 gap-1.5 sm:gap-2 md:gap-2.5 flex-1 min-h-0 my-0.5">
         {SYMBOL_KEYS.map((symKey) => {
           const sym = LANGUR_BURJA_SYMBOLS[symKey];
           const myBet = userBets[symKey] || 0;
@@ -408,7 +410,7 @@ const MobileBettingMatComponent: React.FC<MobileBettingMatProps> = ({
               onClick={() => handleTileClick(symKey)}
               whileHover={isBettingOpen ? { scale: 1.02 } : {}}
               whileTap={isBettingOpen ? { scale: 0.96 } : {}}
-              className={`@container relative h-full min-h-0 rounded-xl border p-1.5 sm:p-2 flex flex-col sm:flex-row @[135px]:flex-row justify-between items-stretch sm:items-center @[135px]:items-center gap-1 cursor-pointer transition-all select-none shadow-md overflow-hidden ${
+              className={`@container relative h-full min-h-0 rounded-xl md:rounded-2xl border p-1.5 sm:p-2 md:p-2.5 flex flex-col sm:flex-row @[135px]:flex-row justify-between items-stretch sm:items-center @[135px]:items-center gap-1 cursor-pointer transition-all select-none shadow-md overflow-hidden ${
                 isWinner
                   ? 'bg-gradient-to-br from-amber-500/30 via-emerald-950/50 to-slate-950 border-amber-300 ring-2 ring-amber-400/80 shadow-amber-500/40 animate-pulse'
                   : isLoser
@@ -418,9 +420,9 @@ const MobileBettingMatComponent: React.FC<MobileBettingMatProps> = ({
             >
               {/* Primary Identity Section: Emblem & Titles */}
               <div className="flex items-center justify-between gap-1.5 min-w-0 flex-1">
-                <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+                <div className="flex items-center gap-1.5 sm:gap-2 md:gap-2.5 min-w-0">
                   {/* Scaled symbol emblem with ivory parchment backing */}
-                  <div className="w-7.5 h-7.5 sm:w-8 sm:h-8 rounded-md sm:rounded-lg overflow-hidden flex items-center justify-center border border-amber-900/40 shadow-sm shrink-0 bg-[#FAF4D0]">
+                  <div className="w-7.5 h-7.5 sm:w-8 sm:h-8 md:w-9 md:h-9 lg:w-10 lg:h-10 rounded-md sm:rounded-lg md:rounded-xl overflow-hidden flex items-center justify-center border border-amber-900/40 shadow-sm shrink-0 bg-[#FAF4D0]">
                     <img
                       src={getSymbolImageDataUrl(symKey)}
                       alt={sym.name}
@@ -428,10 +430,10 @@ const MobileBettingMatComponent: React.FC<MobileBettingMatProps> = ({
                     />
                   </div>
                   <div className="min-w-0 flex flex-col justify-center">
-                    <div className="font-nepali font-black text-xs sm:text-[13px] text-amber-100 leading-tight tracking-wide truncate">
+                    <div className="font-nepali font-black text-xs sm:text-[13px] md:text-sm lg:text-base text-amber-100 leading-tight tracking-wide truncate">
                       {sym.nepaliName.split(' ')[0]}
                     </div>
-                    <div className="text-[8px] sm:text-[8.5px] text-amber-400 font-mono tracking-wider font-bold leading-tight uppercase truncate">
+                    <div className="text-[8px] sm:text-[8.5px] md:text-[9.5px] text-amber-400 font-mono tracking-wider font-bold leading-tight uppercase truncate">
                       {sym.name}
                     </div>
                   </div>
@@ -453,16 +455,16 @@ const MobileBettingMatComponent: React.FC<MobileBettingMatProps> = ({
               <div className="flex items-center justify-end gap-1 min-w-0 shrink-0 w-full sm:w-auto @[135px]:w-auto mt-0.5 sm:mt-0 @[135px]:mt-0">
                 {/* On wider screens, show winner badge alongside stake */}
                 {isWinner && (
-                  <span className="hidden sm:inline-flex @[135px]:inline-flex px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] font-black bg-emerald-400 text-slate-950 font-mono shrink-0 leading-none shadow-sm">
+                  <span className="hidden sm:inline-flex @[135px]:inline-flex px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] md:text-xs font-black bg-emerald-400 text-slate-950 font-mono shrink-0 leading-none shadow-sm">
                     {matchCount}x
                   </span>
                 )}
 
                 {myBet > 0 && (
-                  <div className="w-full sm:w-auto @[135px]:w-auto flex items-center justify-between sm:justify-center @[135px]:justify-center gap-1 px-1.5 py-0.5 rounded-md bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-black font-mono shadow-sm min-w-0">
+                  <div className="w-full sm:w-auto @[135px]:w-auto flex items-center justify-between sm:justify-center @[135px]:justify-center gap-1 px-1.5 py-0.5 md:px-2 md:py-1 rounded-md md:rounded-lg bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-black font-mono shadow-sm min-w-0">
                     <div className="flex items-center gap-1 min-w-0">
                       <Sparkles className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />
-                      <span className="truncate leading-none text-[9px] sm:text-[10px] font-mono font-black">
+                      <span className="truncate leading-none text-[9px] sm:text-[10px] md:text-xs font-mono font-black">
                         {myBet >= 10000 ? `${(myBet / 1000).toFixed(myBet % 1000 === 0 ? 0 : 1)}K` : myBet.toLocaleString()}
                       </span>
                     </div>
@@ -470,7 +472,7 @@ const MobileBettingMatComponent: React.FC<MobileBettingMatProps> = ({
                       <button
                         onClick={(e) => handleRemoveTileBet(e, symKey)}
                         title="Remove bet"
-                        className="p-0.5 rounded hover:bg-slate-950/25 text-slate-950 shrink-0 ml-0.5"
+                        className="p-0.5 rounded hover:bg-slate-950/25 text-slate-950 shrink-0 ml-0.5 cursor-pointer"
                       >
                         <X className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                       </button>
@@ -484,9 +486,9 @@ const MobileBettingMatComponent: React.FC<MobileBettingMatProps> = ({
       </div>
 
       {/* Chip Denominations Bar - 100, 500, 1K, 2K, 5K & Custom (default 250) */}
-      <div className="relative z-10 mt-1 pt-1 sm:mt-1.5 sm:pt-1.5 border-t border-amber-500/20 flex items-center justify-center shrink-0">
+      <div className="relative z-10 mt-1 pt-1 sm:mt-1.5 sm:pt-1.5 md:mt-2 md:pt-2 border-t border-amber-500/20 flex items-center justify-center shrink-0">
         {/* Chip Row - centered, clear, no horizontal scrolling on standard screens */}
-        <div className="flex items-center justify-center gap-1.5 sm:gap-2.5 py-0.5 px-0.5 w-full scrollbar-none">
+        <div className="flex items-center justify-center gap-1.5 sm:gap-2.5 md:gap-3.5 py-0.5 px-0.5 w-full scrollbar-none">
           {/* Preset Chips: 100, 500, 1K, 2K, 5K */}
           {CHIP_PRESETS.map(({ value, label, bg }) => {
             const isSelected = selectedChip === value && !isCustomSelected;
@@ -501,15 +503,15 @@ const MobileBettingMatComponent: React.FC<MobileBettingMatProps> = ({
                     navigator.vibrate(10);
                   }
                 }}
-                className={`relative w-8.5 h-8.5 sm:w-10 sm:h-10 rounded-full font-mono font-black flex items-center justify-center transition-all border-[1.5px] shadow-md shrink-0 select-none ${bg} ${
+                className={`relative w-8.5 h-8.5 sm:w-10 sm:h-10 md:w-11 md:h-11 rounded-full font-mono font-black flex items-center justify-center transition-all border-[1.5px] shadow-md shrink-0 select-none cursor-pointer ${bg} ${
                   isSelected
                     ? 'ring-2 ring-amber-300 ring-offset-1 ring-offset-slate-950 scale-105 z-10 shadow-amber-400/50 brightness-110'
                     : 'hover:brightness-110 opacity-85 hover:opacity-100'
                 }`}
               >
                 {/* Authentic dashed inner rim */}
-                <div className="w-6.5 h-6.5 sm:w-8 sm:h-8 rounded-full border border-dashed border-white/40 flex items-center justify-center pointer-events-none">
-                  <span className="text-[9.5px] sm:text-[11px] leading-none tracking-tighter whitespace-nowrap font-bold">
+                <div className="w-6.5 h-6.5 sm:w-8 sm:h-8 md:w-8.5 md:h-8.5 rounded-full border border-dashed border-white/40 flex items-center justify-center pointer-events-none">
+                  <span className="text-[9.5px] sm:text-[11px] md:text-xs leading-none tracking-tighter whitespace-nowrap font-bold">
                     {label}
                   </span>
                 </div>
@@ -522,22 +524,22 @@ const MobileBettingMatComponent: React.FC<MobileBettingMatProps> = ({
             key="custom"
             id="mobile-chip-custom"
             onClick={handleCustomChipClick}
-            className={`relative w-8.5 h-8.5 sm:w-10 sm:h-10 rounded-full font-mono font-black flex items-center justify-center transition-all border-[1.5px] shadow-md shrink-0 select-none bg-gradient-to-b from-cyan-600 via-cyan-800 to-slate-950 border-cyan-300 text-cyan-100 ${
+            className={`relative w-8.5 h-8.5 sm:w-10 sm:h-10 md:w-11 md:h-11 rounded-full font-mono font-black flex items-center justify-center transition-all border-[1.5px] shadow-md shrink-0 select-none cursor-pointer bg-gradient-to-b from-cyan-600 via-cyan-800 to-slate-950 border-cyan-300 text-cyan-100 ${
               isCustomSelected
                 ? 'ring-2 ring-cyan-300 ring-offset-1 ring-offset-slate-950 scale-105 z-10 shadow-cyan-400/50 brightness-110'
                 : 'hover:brightness-110 opacity-85 hover:opacity-100'
             }`}
             title={`Custom Chip: ${customChipAmount.toLocaleString()} 🪙 (Default 250. Tap to select, tap again to customize)`}
           >
-            <div className="w-6.5 h-6.5 sm:w-8 sm:h-8 rounded-full border border-dashed border-cyan-200/50 flex flex-col items-center justify-center pointer-events-none">
-              <span className="text-[8.5px] sm:text-[10px] leading-none font-mono font-black tracking-tighter whitespace-nowrap">
+            <div className="w-6.5 h-6.5 sm:w-8 sm:h-8 md:w-8.5 md:h-8.5 rounded-full border border-dashed border-cyan-200/50 flex flex-col items-center justify-center pointer-events-none">
+              <span className="text-[8.5px] sm:text-[10px] md:text-[10.5px] leading-none font-mono font-black tracking-tighter whitespace-nowrap">
                 {customChipAmount >= 10000
                   ? `${(customChipAmount / 1000).toFixed(customChipAmount % 1000 === 0 ? 0 : 1)}K`
                   : customChipAmount >= 1000
                   ? `${(customChipAmount / 1000).toFixed(customChipAmount % 100 === 0 ? 0 : 1)}K`
                   : customChipAmount}
               </span>
-              <span className="text-[4.5px] sm:text-[5.5px] leading-none font-sans tracking-tight text-cyan-300/90 uppercase mt-0.5 font-bold">
+              <span className="text-[4.5px] sm:text-[5.5px] md:text-[6px] leading-none font-sans tracking-tight text-cyan-300/90 uppercase mt-0.5 font-bold">
                 {isCustomSelected ? 'edit' : 'custom'}
               </span>
             </div>

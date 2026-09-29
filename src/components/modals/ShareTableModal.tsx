@@ -62,12 +62,12 @@ export const ShareTableModal: React.FC<ShareTableModalProps> = ({
   return (
     <div
       id="share-table-modal-backdrop"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 md:p-6 bg-black/85 backdrop-blur-md animate-in fade-in duration-200"
       onClick={onClose}
     >
       <div
         id="share-table-modal-panel"
-        className="w-full max-w-sm bg-gradient-to-b from-[#0e1628] via-[#090f1d] to-[#050811] border border-amber-500/40 rounded-3xl p-5 shadow-2xl shadow-black/90 relative overflow-hidden text-slate-100 select-none animate-in zoom-in-95 duration-200 flex flex-col gap-4"
+        className="w-full max-w-sm sm:max-w-md bg-gradient-to-b from-[#0e1628] via-[#090f1d] to-[#050811] border border-amber-500/40 rounded-3xl p-5 sm:p-6 shadow-2xl shadow-black/90 relative overflow-hidden text-slate-100 select-none animate-in zoom-in-95 duration-200 flex flex-col gap-4"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Decorative backdrop glow */}

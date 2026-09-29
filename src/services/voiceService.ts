@@ -285,16 +285,9 @@ class VoiceService {
       const audioInputs = devices.filter((d) => d.kind === 'audioinput');
       this.state.inputDevices = audioInputs;
       
-      // Select the first real hardware device ID (preferring non-default device ID if available)
-      const validHardwareDevice = audioInputs.find(
-        (d) => d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications'
-      );
-      const chosenId = validHardwareDevice?.deviceId || (audioInputs.length > 0 ? audioInputs[0].deviceId : '');
-
-      if (!this.state.selectedDeviceId || this.state.selectedDeviceId === 'default') {
-        if (chosenId) {
-          this.state.selectedDeviceId = chosenId;
-        }
+      // Default to standard system/browser default mic unless explicitly configured
+      if (!this.state.selectedDeviceId) {
+        this.state.selectedDeviceId = 'default';
       }
       this.notify();
       return audioInputs;
@@ -463,11 +456,14 @@ class VoiceService {
       }
 
       this.ensureAudioContext();
+      if (this.audioContext && this.audioContext.state === 'suspended') {
+        await this.audioContext.resume().catch(() => {});
+      }
 
       let stream: MediaStream | null = null;
       const chosenId = this.state.selectedDeviceId;
 
-      // Tier 1: Try with ideal device ID (never exact to avoid overconstrained errors) & full processing
+      // Tier 1: Try with audio processing flags (using default active mic if chosenId is default)
       try {
         const audioConstraints: MediaTrackConstraints = {
           echoCancellation: this.state.echoCancellation,
@@ -509,7 +505,7 @@ class VoiceService {
           });
         } catch (t3Err: any) {
           console.error('[VoiceService] All microphone capture tiers failed:', t3Err);
-          this.state.error = 'Microphone permission needed. Please allow microphone access.';
+          this.state.error = 'Microphone permission needed. Please allow microphone access in your browser.';
           this.notify();
           return false;
         }
@@ -517,35 +513,29 @@ class VoiceService {
 
       this.localStream = stream;
 
-      // Detect and record active hardware deviceId
+      // Detect active hardware deviceId
       const activeTrack = stream.getAudioTracks()[0];
       if (activeTrack) {
-        const actualDeviceId = activeTrack.getSettings?.().deviceId;
-        if (actualDeviceId && actualDeviceId !== 'default') {
-          this.state.selectedDeviceId = actualDeviceId;
-        }
+        activeTrack.enabled = !this.state.isMuted;
         // Re-enumerate devices with newly granted permission
         this.loadInputDevices().catch(() => {});
       }
 
-      // Apply current mute state to audio tracks
-      this.localStream.getAudioTracks().forEach((t) => {
-        t.enabled = !this.state.isMuted;
-      });
-
       // Update tracks on all active peer connections and trigger renegotiation
       if (activeTrack) {
         this.peerConnections.forEach(async (pc, peerSid) => {
-          const senders = pc.getSenders();
-          const audioSender = senders.find((s) => s.track && s.track.kind === 'audio');
-          if (audioSender) {
-            await audioSender.replaceTrack(activeTrack).catch(() => {});
-          } else {
-            try {
+          try {
+            const senders = pc.getSenders();
+            const audioSender = senders.find((s) => !s.track || s.track.kind === 'audio');
+            if (audioSender) {
+              await audioSender.replaceTrack(activeTrack).catch(() => {});
+            } else {
               pc.addTrack(activeTrack, stream!);
-            } catch (e) {}
+            }
+            this.renegotiatePeer(peerSid, pc);
+          } catch (e) {
+            console.warn('[VoiceService] Peer track attach notice:', e);
           }
-          this.renegotiatePeer(peerSid, pc);
         });
       }
 
@@ -715,15 +705,27 @@ class VoiceService {
       this.ensureAudioContext();
       if (!this.audioContext) return;
 
+      this.stopPcmAudioStreaming();
+
       const source = this.audioContext.createMediaStreamSource(stream);
-      // 2048 buffer size at 16kHz = ~128ms per audio slice
+      // 2048 buffer size = responsive transmission (~40ms - 120ms per slice depending on sampleRate)
       const processor = this.audioContext.createScriptProcessor(2048, 1, 1);
       this.processorNode = processor;
 
       processor.onaudioprocess = (e) => {
-        if (!this.state.isConnected || this.state.isMuted || !this.state.isSpeaking) return;
+        if (!this.state.isConnected || this.state.isMuted) return;
 
         const inputBuffer = e.inputBuffer.getChannelData(0);
+        let sumSquares = 0;
+        for (let i = 0; i < inputBuffer.length; i++) {
+          const val = inputBuffer[i];
+          sumSquares += val * val;
+        }
+        const rms = Math.sqrt(sumSquares / inputBuffer.length);
+
+        // Transmit audio as long as there is any signal above absolute silence (rms > 0.001)
+        if (rms < 0.001) return;
+
         // Convert Float32Array (-1.0 to 1.0) to Int16 PCM array
         const pcm16 = new Int16Array(inputBuffer.length);
         for (let i = 0; i < inputBuffer.length; i++) {
@@ -1037,8 +1039,18 @@ class VoiceService {
   public async toggleMute(): Promise<boolean> {
     const wantUnmute = this.state.isMuted;
 
+    this.ensureAudioContext();
+    if (this.audioContext && this.audioContext.state === 'suspended') {
+      await this.audioContext.resume().catch(() => {});
+    }
+
     if (wantUnmute) {
-      if (!this.localStream) {
+      const isStreamActive =
+        this.localStream &&
+        this.localStream.getAudioTracks().length > 0 &&
+        this.localStream.getAudioTracks().some((t) => t.readyState === 'live');
+
+      if (!isStreamActive) {
         const ok = await this.initMicrophone();
         if (!ok) {
           this.state.isMuted = true;
@@ -1046,10 +1058,12 @@ class VoiceService {
           this.notify();
           return true;
         }
-      } else {
+      } else if (this.localStream) {
         this.localStream.getAudioTracks().forEach((t) => {
           t.enabled = true;
         });
+        this.startVAD(this.localStream);
+        this.startPcmAudioStreaming(this.localStream);
       }
       this.state.isMuted = false;
       this.state.error = null;
@@ -1060,6 +1074,7 @@ class VoiceService {
           t.enabled = false;
         });
       }
+      this.stopPcmAudioStreaming();
       this.state.isSpeaking = false;
       this.state.localVolumeLevel = 0;
       this.lastSpeakingState = false;

@@ -121,12 +121,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   return (
     <div
       id="auth-modal-backdrop"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/90 backdrop-blur-sm animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 md:p-6 bg-black/90 backdrop-blur-sm animate-in fade-in duration-150 select-none"
       onClick={canDismiss ? onClose : undefined}
     >
       <div
         id="auth-modal-container"
-        className="w-full max-w-sm sm:max-w-md bg-gradient-to-b from-[#0d1424] via-[#090e1a] to-[#050811] border border-amber-500/40 rounded-3xl p-5 sm:p-6 shadow-2xl shadow-black/90 relative overflow-hidden text-slate-100 select-none animate-in zoom-in-95 duration-150 max-h-[94vh] flex flex-col"
+        className="w-full max-w-sm sm:max-w-md md:max-w-lg bg-gradient-to-b from-[#0d1424] via-[#090e1a] to-[#050811] border border-amber-500/40 rounded-3xl p-5 sm:p-6 md:p-7 shadow-2xl shadow-black/90 relative overflow-hidden text-slate-100 select-none animate-in zoom-in-95 duration-150 max-h-[94vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Subtle decorative warm glow */}

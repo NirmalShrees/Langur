@@ -180,16 +180,12 @@ async function startServer() {
     res.json({ isAdmin, userId, email });
   });
 
-  // 1. Get All Players with Live Presence & Table Locations (Excluding Bots)
-  app.get('/api/admin/players', async (req, res) => {
+  // Helper function to build accurate admin players snapshot with live table presence
+  async function fetchAdminPlayersSnapshot(): Promise<any[]> {
     try {
-      // 1. Fetch remote profiles from Supabase
       const remoteProfiles = await fetchAllProfilesForAdmin();
-
-      // 2. Fetch local memory profiles from DB
       const localUsers = db.getAllUsers();
 
-      // Helper to identify bots/seed users
       const isBotId = (id: string) => {
         if (!id) return true;
         const lower = id.toLowerCase();
@@ -204,7 +200,6 @@ async function startServer() {
         );
       };
 
-      // Merge both sources (deduped by ID)
       const mergedMap = new Map<string, any>();
 
       for (const u of localUsers) {
@@ -268,7 +263,6 @@ async function startServer() {
         let presence: 'online' | 'in_table' | 'offline' = 'offline';
         let currentTable: { id: string; name: string; code: string; isHost: boolean } | null = null;
 
-        // Check if player is currently in any active room in GameEngine
         for (const r of (gameEngine as any).rooms.values()) {
           if (r.players && r.players[player.id]) {
             presence = 'in_table';
@@ -302,6 +296,147 @@ async function startServer() {
         return (b.coins || 0) - (a.coins || 0);
       });
 
+      return playersList;
+    } catch (err) {
+      console.warn('Error building admin players snapshot:', err);
+      return [];
+    }
+  }
+
+  // Helper function to build accurate admin tables snapshot with real-time timers, phases & bets
+  async function fetchAdminTablesSnapshot(): Promise<any[]> {
+    const allRooms: any[] = [];
+    const memoryRoomIds = new Set<string>();
+
+    try {
+      // 1. Gather active in-memory rooms
+      for (const r of (gameEngine as any).rooms.values()) {
+        memoryRoomIds.add(r.id);
+        const realPlayers = Object.values(r.players || {}).filter(
+          (p: any) => !p.id.startsWith('patron_') && !p.id.startsWith('bot_')
+        );
+
+        const isSystem = r.id === 'public-royal-table' || r.code === 'ROYAL1' || r.hostId === 'system_host' || r.hostId === 'system';
+        const explicitAdmin =
+          (r as any).approvedByAdminName ||
+          (r as any).approved_by_admin_name ||
+          (r as any).approval_meta?.admin_name ||
+          (r as any).approvalMeta?.admin_name;
+
+        allRooms.push({
+          id: r.id,
+          name: r.name,
+          code: r.code,
+          hostId: r.hostId,
+          hostName: r.players[r.hostId]?.username || (r as any).host_name || 'Host',
+          isPrivate: r.isPrivate,
+          phase: r.phase,
+          timer: r.timer,
+          bettingDuration: r.settings?.bettingDuration || 18,
+          roundNumber: r.roundNumber,
+          playerCount: Object.keys(r.players || {}).length,
+          realPlayerCount: realPlayers.length,
+          players: Object.values(r.players || {}).map((p: any) => ({
+            id: p.id,
+            username: p.username,
+            avatar: p.avatar,
+            coins: p.coins,
+            currentBet: p.totalBetThisRound || 0,
+            bets: p.bets || {},
+            isHost: p.isHost,
+            isBot: p.id.startsWith('patron_') || p.id.startsWith('bot_'),
+          })),
+          tableBets: r.tableBets || {},
+          totalRoundBets: Object.values(r.tableBets || {}).reduce((a: number, b: any) => a + Number(b || 0), 0),
+          avar: (r as any).avar ?? (r as any).settings?.avar ?? 50,
+          lastResult: r.lastResult,
+          history: (r as any).history || [],
+          inMemory: true,
+          status: r.phase === 'waiting' ? 'waiting' : 'active',
+          approvalStatus: (r as any).approval_status || 'approved',
+          approvalMeta: (r as any).approval_meta || (r as any).approvalMeta || {},
+          approvedByAdminName: explicitAdmin,
+          approved_by_admin_name: explicitAdmin,
+          adminApprovalMessage: (r as any).adminApprovalMessage || (r as any).approval_meta?.message,
+          expiresAt: r.expiresAt || (r as any).expires_at,
+          createdAt: (r as any).createdAt || (r as any).created_at,
+          isSystemGenerated: isSystem,
+        });
+      }
+
+      // 2. Query Supabase for persistent game tables not currently active in memory
+      const sb = getSupabaseServerClient();
+      if (sb) {
+        const { data: dbTables } = await sb
+          .from('game_tables')
+          .select('*')
+          .order('updated_at', { ascending: false });
+
+        if (dbTables && Array.isArray(dbTables)) {
+          for (const dt of dbTables) {
+            if (dt.id && !memoryRoomIds.has(dt.id)) {
+              const statsArr = Array.isArray(dt.player_stats) ? dt.player_stats : [];
+              const playersArr = Array.isArray(dt.players) ? dt.players : [];
+              const pList = statsArr.length > 0 ? statsArr : playersArr;
+
+              const isSystemDb = dt.id === 'public-royal-table' || dt.code === 'ROYAL1' || dt.host_id === 'system_host' || dt.host_id === 'system';
+              const explicitAdminDb =
+                dt.approved_by_admin_name ||
+                dt.approvedByAdminName ||
+                dt.approval_meta?.admin_name ||
+                dt.approvalMeta?.admin_name;
+
+              allRooms.push({
+                id: dt.id,
+                name: dt.name || `Table ${dt.code}`,
+                code: dt.code,
+                hostId: dt.host_id,
+                hostName: dt.host_name || 'Host',
+                isPrivate: dt.is_private ?? false,
+                phase: dt.status || 'waiting',
+                timer: dt.betting_duration || 18,
+                bettingDuration: dt.betting_duration || 18,
+                roundNumber: dt.table_stats?.totalRounds || 1,
+                playerCount: dt.player_count || pList.length || 0,
+                realPlayerCount: dt.player_count || pList.length || 0,
+                players: pList.map((p: any) => ({
+                  id: p.id || '',
+                  username: p.username || 'Player',
+                  avatar: p.avatar || '🎲',
+                  coins: p.coins || 0,
+                  currentBet: 0,
+                  isHost: p.isHost || false,
+                  isBot: false,
+                })),
+                tableBets: { jhanda: 0, burja: 0, itta: 0, paan: 0, hukum: 0, chidi: 0 },
+                totalRoundBets: 0,
+                avar: dt.avar ?? dt.settings?.avar ?? 50,
+                inMemory: false,
+                status: dt.status || 'waiting',
+                approvalStatus: dt.approval_status || (dt.approved ? 'approved' : 'pending'),
+                approvalMeta: dt.approval_meta || {},
+                approvedByAdminName: explicitAdminDb,
+                approved_by_admin_name: explicitAdminDb,
+                adminApprovalMessage: dt.admin_approval_message || dt.approval_meta?.message,
+                expiresAt: dt.expires_at,
+                createdAt: dt.created_at,
+                isSystemGenerated: isSystemDb,
+              });
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Error building admin tables snapshot:', err);
+    }
+
+    return allRooms;
+  }
+
+  // 1. Get All Players with Live Presence & Table Locations (Excluding Bots)
+  app.get('/api/admin/players', async (req, res) => {
+    try {
+      const playersList = await fetchAdminPlayersSnapshot();
       res.json({
         success: true,
         totalPlayers: playersList.length,
@@ -919,131 +1054,7 @@ async function startServer() {
   // 4. Get All Active Tables (from memory & Supabase) for Admin Supervision
   app.get('/api/admin/tables', async (req, res) => {
     try {
-      const allRooms: any[] = [];
-      const memoryRoomIds = new Set<string>();
-
-      // 1. Gather active in-memory rooms
-      for (const r of (gameEngine as any).rooms.values()) {
-        memoryRoomIds.add(r.id);
-        const realPlayers = Object.values(r.players || {}).filter(
-          (p: any) => !p.id.startsWith('patron_') && !p.id.startsWith('bot_')
-        );
-
-        const isSystem = r.id === 'public-royal-table' || r.code === 'ROYAL1' || r.hostId === 'system_host' || r.hostId === 'system';
-        const explicitAdmin =
-          (r as any).approvedByAdminName ||
-          (r as any).approved_by_admin_name ||
-          (r as any).approval_meta?.admin_name ||
-          (r as any).approvalMeta?.admin_name;
-
-        allRooms.push({
-          id: r.id,
-          name: r.name,
-          code: r.code,
-          hostId: r.hostId,
-          hostName: r.players[r.hostId]?.username || (r as any).host_name || 'Host',
-          isPrivate: r.isPrivate,
-          phase: r.phase,
-          timer: r.timer,
-          bettingDuration: r.settings?.bettingDuration || 18,
-          roundNumber: r.roundNumber,
-          playerCount: Object.keys(r.players || {}).length,
-          realPlayerCount: realPlayers.length,
-          players: Object.values(r.players || {}).map((p: any) => ({
-            id: p.id,
-            username: p.username,
-            avatar: p.avatar,
-            coins: p.coins,
-            currentBet: p.totalBetThisRound || 0,
-            bets: p.bets || {},
-            isHost: p.isHost,
-            isBot: p.id.startsWith('patron_') || p.id.startsWith('bot_'),
-          })),
-          tableBets: r.tableBets || {},
-          totalRoundBets: Object.values(r.tableBets || {}).reduce((a: number, b: any) => a + Number(b || 0), 0),
-          avar: (r as any).avar ?? (r as any).settings?.avar ?? 50,
-          lastResult: r.lastResult,
-          history: (r as any).history || [],
-          inMemory: true,
-          status: r.phase === 'waiting' ? 'waiting' : 'active',
-          approvalStatus: (r as any).approval_status || 'approved',
-          approvalMeta: (r as any).approval_meta || (r as any).approvalMeta || {},
-          approvedByAdminName: explicitAdmin,
-          approved_by_admin_name: explicitAdmin,
-          adminApprovalMessage: (r as any).adminApprovalMessage || (r as any).approval_meta?.message,
-          expiresAt: r.expiresAt || (r as any).expires_at,
-          createdAt: (r as any).createdAt || (r as any).created_at,
-          isSystemGenerated: isSystem,
-        });
-      }
-
-      // 2. Query Supabase for any persistent database table rows not already in memory
-      try {
-        const sb = getSupabaseServerClient();
-        if (sb) {
-          const { data: dbTables } = await sb
-            .from('game_tables')
-            .select('*')
-            .order('updated_at', { ascending: false });
-
-          if (dbTables && Array.isArray(dbTables)) {
-            for (const dt of dbTables) {
-              if (dt.id && !memoryRoomIds.has(dt.id)) {
-                const statsArr = Array.isArray(dt.player_stats) ? dt.player_stats : [];
-                const playersArr = Array.isArray(dt.players) ? dt.players : [];
-                const pList = statsArr.length > 0 ? statsArr : playersArr;
-
-                const isSystemDb = dt.id === 'public-royal-table' || dt.code === 'ROYAL1' || dt.host_id === 'system_host' || dt.host_id === 'system';
-                const explicitAdminDb =
-                  dt.approved_by_admin_name ||
-                  dt.approvedByAdminName ||
-                  dt.approval_meta?.admin_name ||
-                  dt.approvalMeta?.admin_name;
-
-                allRooms.push({
-                  id: dt.id,
-                  name: dt.name || `Table ${dt.code}`,
-                  code: dt.code,
-                  hostId: dt.host_id,
-                  hostName: dt.host_name || 'Host',
-                  isPrivate: dt.is_private ?? false,
-                  phase: dt.status || 'waiting',
-                  timer: dt.betting_duration || 18,
-                  bettingDuration: dt.betting_duration || 18,
-                  roundNumber: dt.table_stats?.totalRounds || 1,
-                  playerCount: dt.player_count || pList.length || 0,
-                  realPlayerCount: dt.player_count || pList.length || 0,
-                  players: pList.map((p: any) => ({
-                    id: p.id || '',
-                    username: p.username || 'Player',
-                    avatar: p.avatar || '🎲',
-                    coins: p.coins || 0,
-                    currentBet: 0,
-                    isHost: p.isHost || false,
-                    isBot: false,
-                  })),
-                  tableBets: { jhanda: 0, burja: 0, itta: 0, paan: 0, hukum: 0, chidi: 0 },
-                  totalRoundBets: 0,
-                  avar: dt.avar ?? dt.settings?.avar ?? 50,
-                  inMemory: false,
-                  status: dt.status || 'waiting',
-                  approvalStatus: dt.approval_status || (dt.approved ? 'approved' : 'pending'),
-                  approvalMeta: dt.approval_meta || {},
-                  approvedByAdminName: explicitAdminDb,
-                  approved_by_admin_name: explicitAdminDb,
-                  adminApprovalMessage: dt.admin_approval_message || dt.approval_meta?.message,
-                  expiresAt: dt.expires_at,
-                  createdAt: dt.created_at,
-                  isSystemGenerated: isSystemDb,
-                });
-              }
-            }
-          }
-        }
-      } catch (sbErr) {
-        console.warn('Failed querying Supabase game_tables for admin list:', sbErr);
-      }
-
+      const allRooms = await fetchAdminTablesSnapshot();
       res.json({
         success: true,
         activeTablesCount: allRooms.length,
@@ -1346,14 +1357,43 @@ async function startServer() {
     let currentRoomId: string | null = null;
     let currentUserId: string | null = null;
 
-    socket.on('user:init', (payload: { id: string; username?: string; avatar?: string }, callback) => {
+    socket.on('user:init', async (payload: { id: string; username?: string; avatar?: string }, callback) => {
       const user = db.getOrCreateUser(payload.id, payload.username, payload.avatar);
       currentUserId = user.id;
       userSockets.set(user.id, socket.id);
       socketUsers.set(socket.id, user.id);
+
+      // Notify admin live channel of presence update
+      io.to('admin_live_channel').emit('user:presence_changed', {
+        userId: user.id,
+        presence: 'online',
+        username: user.username,
+        avatar: user.avatar,
+        coins: user.coins,
+      });
+
       if (typeof callback === 'function') {
         callback({ success: true, user });
       }
+    });
+
+    // Real-Time Admin Live Telemetry Channel Subscriptions
+    socket.on('admin:subscribe_live', async () => {
+      socket.join('admin_live_channel');
+      try {
+        const [tables, players] = await Promise.all([
+          fetchAdminTablesSnapshot(),
+          fetchAdminPlayersSnapshot(),
+        ]);
+        socket.emit('admin:live_tables_sync', { tables });
+        socket.emit('admin:live_players_sync', { players });
+      } catch (err) {
+        console.warn('[Admin] Error sending initial live telemetry sync:', err);
+      }
+    });
+
+    socket.on('admin:unsubscribe_live', () => {
+      socket.leave('admin_live_channel');
     });
 
     socket.on('user:update_profile', (payload: { id: string; username?: string; avatar?: string }, callback) => {
@@ -1830,9 +1870,39 @@ async function startServer() {
       if (currentRoomId && currentUserId) {
         gameEngine.handlePlayerDisconnect(currentRoomId, currentUserId);
       }
-      gameEngine.purgeZeroPlayerTables().catch(() => {});
+
+      // Notify admin live channel on disconnect
+      if (currentUserId) {
+        io.to('admin_live_channel').emit('user:presence_changed', {
+          userId: currentUserId,
+          presence: 'offline',
+        });
+      }
     });
   });
+
+  // Real-time authoritative live broadcaster for Admin View & God Mode
+  // Broadcasts active tables every 1 second (1000ms) with zero-lag countdowns and bets
+  setInterval(async () => {
+    try {
+      const adminRoom = io.sockets.adapter.rooms.get('admin_live_channel');
+      if (adminRoom && adminRoom.size > 0) {
+        const tables = await fetchAdminTablesSnapshot();
+        io.to('admin_live_channel').emit('admin:live_tables_sync', { tables });
+      }
+    } catch (e) {}
+  }, 1000);
+
+  // Real-time authoritative live player broadcaster for Admin Players tab (every 2 seconds)
+  setInterval(async () => {
+    try {
+      const adminRoom = io.sockets.adapter.rooms.get('admin_live_channel');
+      if (adminRoom && adminRoom.size > 0) {
+        const players = await fetchAdminPlayersSnapshot();
+        io.to('admin_live_channel').emit('admin:live_players_sync', { players });
+      }
+    } catch (e) {}
+  }, 2000);
 
   // Vite middleware for development / Static file server for production
   if (process.env.NODE_ENV !== 'production') {

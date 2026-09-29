@@ -21,11 +21,11 @@ export const LeadershipOfferModal: React.FC<LeadershipOfferModalProps> = ({
   return (
     <div
       id="leadership-offer-modal-backdrop"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 md:p-6 bg-black/85 backdrop-blur-md animate-in fade-in duration-200"
     >
       <div
         id="leadership-offer-panel"
-        className="w-full max-w-sm bg-gradient-to-b from-[#141b2d] via-[#0b1220] to-[#060a14] border-2 border-amber-400 rounded-3xl p-5 sm:p-6 shadow-2xl shadow-amber-950/80 relative overflow-hidden text-slate-100 select-none animate-in zoom-in-95 duration-200 flex flex-col gap-4 text-center"
+        className="w-full max-w-sm sm:max-w-md bg-gradient-to-b from-[#141b2d] via-[#0b1220] to-[#060a14] border-2 border-amber-400 rounded-3xl p-5 sm:p-6 shadow-2xl shadow-amber-950/80 relative overflow-hidden text-slate-100 select-none animate-in zoom-in-95 duration-200 flex flex-col gap-4 text-center"
       >
         {/* Decorative ambient crown glow */}
         <div className="absolute top-0 right-1/2 translate-x-1/2 -mt-16 w-48 h-48 bg-amber-500/20 rounded-full blur-3xl pointer-events-none" />

@@ -451,14 +451,14 @@ export const GodModeModal: React.FC<GodModeModalProps> = ({
           </div>
         </div>
 
-        {/* Compact Footer (Zero Wasted Space - Live 2s Sync Indicator) */}
+        {/* Compact Footer (Zero Wasted Space - Live Real-Time Telemetry Sync) */}
         <footer className="px-3.5 py-1.5 bg-slate-950/95 border-t border-slate-800/80 flex items-center justify-between gap-2 text-[10px] font-mono text-slate-400 shrink-0">
           <div className="flex items-center gap-1.5">
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
             </span>
-            <span className="text-emerald-300 font-semibold">Live 2s Auto-Telemetry Sync</span>
+            <span className="text-emerald-300 font-semibold">Live Real-Time Telemetry Sync</span>
           </div>
           <div className="text-slate-500">
             Esc / ✕ to close

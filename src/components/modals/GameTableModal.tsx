@@ -482,12 +482,12 @@ export const GameTableModal: React.FC<GameTableModalProps> = ({
   return (
     <div
       id="game-table-modal-backdrop"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/90 backdrop-blur-sm animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 md:p-6 bg-black/90 backdrop-blur-sm animate-in fade-in duration-150 select-none"
       onClick={onClose}
     >
       <div
         id="game-table-modal-container"
-        className="w-full max-w-sm sm:max-w-md h-[480px] sm:h-[510px] max-h-[85vh] bg-gradient-to-b from-[#0e1628] via-[#090f1d] to-[#050811] border border-amber-500/40 rounded-3xl p-3.5 sm:p-5 shadow-2xl shadow-black/90 relative overflow-hidden text-slate-100 select-none animate-in zoom-in-95 duration-150 flex flex-col"
+        className="w-full max-w-md sm:max-w-lg md:max-w-xl h-[520px] sm:h-[560px] md:h-[600px] max-h-[90vh] bg-gradient-to-b from-[#0e1628] via-[#090f1d] to-[#050811] border border-amber-500/40 rounded-3xl p-3.5 sm:p-5 md:p-6 shadow-2xl shadow-black/90 relative overflow-hidden text-slate-100 select-none animate-in zoom-in-95 duration-150 flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Subtle decorative ambiance without GPU-heavy blur */}

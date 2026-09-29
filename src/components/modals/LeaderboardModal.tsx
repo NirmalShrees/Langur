@@ -90,12 +90,12 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
   return (
     <div
       id="leaderboard-modal-overlay"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 sm:p-4 overscroll-contain animate-in fade-in duration-150 select-none backdrop-blur-xs"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 sm:p-4 md:p-6 overscroll-contain animate-in fade-in duration-150 select-none backdrop-blur-xs"
       onClick={onClose}
     >
       <div
         id="leaderboard-modal-card"
-        className="relative w-full max-w-lg bg-gradient-to-b from-[#0e1628] via-[#090f1d] to-[#050811] border border-amber-500/40 rounded-3xl shadow-2xl p-4 sm:p-5 flex flex-col max-h-[88vh] overflow-hidden text-slate-100"
+        className="relative w-full max-w-lg sm:max-w-xl md:max-w-2xl bg-gradient-to-b from-[#0e1628] via-[#090f1d] to-[#050811] border border-amber-500/40 rounded-3xl shadow-2xl p-4 sm:p-5 md:p-6 flex flex-col max-h-[88vh] overflow-hidden text-slate-100"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}

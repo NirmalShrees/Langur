@@ -1347,30 +1347,19 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
         </div>
       )}
 
-      {/* Top Center: Debug Wireframe Badge */}
-      {showWireframe && (
-        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
-          <div className="px-2.5 py-1 rounded-full bg-cyan-950/90 border border-cyan-500/70 text-cyan-300 text-[10px] font-mono font-bold tracking-wide backdrop-blur-md shadow-lg flex items-center gap-1.5 whitespace-nowrap">
-            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-            <span>DEBUG: 56 Vertices / Die • 2-Segment Bevel • 108 Tris</span>
-          </div>
-        </div>
-      )}
-
-      {/* Top Right: Debug Wireframe Toggle & Reset Camera */}
+      {/* Top Right: Wireframe Toggle & Reset Camera */}
       <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5">
         <button
           id="wireframe-debug-btn"
           onClick={() => setShowWireframe((prev) => !prev)}
-          title={showWireframe ? 'Hide 3D Wireframe (Debug)' : 'Show 3D Wireframe (Debug - 56 Vertices / Die)'}
-          className={`p-1.5 rounded-xl border backdrop-blur-md shadow-md active:scale-95 transition-all flex items-center gap-1 text-[11px] font-mono ${
+          title={showWireframe ? 'Hide 3D Wireframe' : 'Show 3D Wireframe'}
+          className={`p-1.5 rounded-xl border backdrop-blur-md shadow-md active:scale-95 transition-all flex items-center justify-center ${
             showWireframe
               ? 'bg-cyan-950/90 text-cyan-300 border-cyan-400/80 shadow-[0_0_12px_rgba(6,182,212,0.4)]'
               : 'bg-slate-950/85 hover:bg-slate-900 text-slate-400 hover:text-cyan-300 border-slate-700/60 hover:border-cyan-500/40'
           }`}
         >
           <Grid className="w-3.5 h-3.5 shrink-0" />
-          <span className="hidden sm:inline font-semibold">Wireframe</span>
         </button>
         <button
           id="camera-reset-btn"
@@ -1425,6 +1414,11 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
                     {winner.multipliers[0].count}x
                   </span>
                 )}
+
+                {/* "won" text in the middle */}
+                <span className="text-[10.5px] font-semibold text-amber-200/90 lowercase drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]">
+                  won
+                </span>
 
                 {/* Amount */}
                 <span className="font-mono font-bold text-emerald-400 text-[11.5px] whitespace-nowrap ml-0.5 drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]">

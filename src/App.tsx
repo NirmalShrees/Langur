@@ -3398,9 +3398,9 @@ export default function App() {
         />
         </>
       ) : (
-        /* Main Mobile Screen Wrapper: Responsive adaptive viewport */
-        <div className={`w-full max-w-md sm:max-w-lg md:max-w-xl h-[100dvh] max-h-[100dvh] sm:h-[96vh] sm:max-h-[960px] flex flex-col justify-between shadow-2xl border-x ${gameFrameBorder} bg-slate-950 relative overflow-hidden sm:rounded-3xl transition-colors duration-300`}>
-          {/* 1. Mobile Top Header with Profile Access, Fullscreen & Settings */}
+        /* Main Gaming Screen Wrapper: Responsive adaptive viewport for Mobile, Tablet & Desktop */
+        <div className={`w-full max-w-md sm:max-w-lg md:max-w-2xl lg:max-w-5xl xl:max-w-6xl 2xl:max-w-7xl h-[100dvh] max-h-[100dvh] md:h-[94vh] md:max-h-[920px] md:my-auto flex flex-col justify-between shadow-2xl border-x md:border ${gameFrameBorder} bg-slate-950 relative overflow-hidden md:rounded-3xl transition-colors duration-300`}>
+          {/* 1. Top Header with Profile Access, Fullscreen & Settings */}
           <MobileHeader
             user={user}
             currentRoom={currentRoom}
@@ -3417,109 +3417,207 @@ export default function App() {
             unreadNotificationCount={notifications.filter(isNotificationUnseen).length}
           />
 
-          {/* 2. Main Arena, Players Deck & Mat Content Area */}
+          {/* 2. Main Game Arena & Betting Content Area (Adaptive 2-column on Desktop / Stacked on Mobile & Tablet) */}
           <div
             ref={scrollContainerRef}
-            className="flex-1 min-h-0 px-2 sm:px-2.5 pt-1 pb-1 flex flex-col gap-1 sm:gap-1.5 overflow-hidden"
+            className="flex-1 min-h-0 px-2 sm:px-3 md:px-4 lg:px-5 pt-1 pb-1 lg:py-3 flex flex-col lg:grid lg:grid-cols-12 gap-1.5 sm:gap-2 lg:gap-4 overflow-hidden"
           >
-            {/* Active Table Players Pavilion (Compact circular avatars, live countdown, ping latency & ready toggle) */}
-            <div className="shrink-0 space-y-1">
-              <ActivePlayersDeck
-                players={activeTablePlayers}
-                phase={phase}
-                tableName={currentRoom?.name || 'Royal Pavilion'}
-                onToggleUserReady={handleToggleUserReady}
-                isUserReady={isUserReady}
-                nextRoundVotes={nextRoundVotes}
-                onOpenTableStats={() => setIsTableStatsOpen(true)}
-                bettingTimer={bettingTimer}
-                maxTimer={BETTING_DURATION}
-                roundNumber={roundNumber}
-                tablePool={totalTablePool}
-                isTableOwner={Boolean(currentRoom ? currentRoom.hostId === user.id : true)}
-                onKickPlayer={handleKickPlayer}
-                onTransferLeadership={handleRequestTransferLeadership}
-                ping={ping}
-                isConnected={isConnected}
-                isOnline={isOnline}
-                roomId={currentRoom?.id || 'public_table'}
-                currentUser={{
-                  id: user.id || 'user_me',
-                  username: user.username || 'You',
-                  avatar: user.avatar || '🎲',
-                }}
-              />
-            </div>
+            {/* Left Column (Desktop) / Top Section (Mobile): Players Deck + 3D Three.js Arena */}
+            <div className="flex flex-col gap-1 sm:gap-1.5 lg:gap-2 lg:col-span-6 xl:col-span-7 min-h-0 flex-1 lg:h-full overflow-hidden">
+              {/* Active Table Players Pavilion (Compact circular avatars, live countdown, ping latency & ready toggle) */}
+              <div className="shrink-0 space-y-1">
+                <ActivePlayersDeck
+                  players={activeTablePlayers}
+                  phase={phase}
+                  tableName={currentRoom?.name || 'Royal Pavilion'}
+                  onToggleUserReady={handleToggleUserReady}
+                  isUserReady={isUserReady}
+                  nextRoundVotes={nextRoundVotes}
+                  onOpenTableStats={() => setIsTableStatsOpen(true)}
+                  bettingTimer={bettingTimer}
+                  maxTimer={BETTING_DURATION}
+                  roundNumber={roundNumber}
+                  tablePool={totalTablePool}
+                  isTableOwner={Boolean(currentRoom ? currentRoom.hostId === user.id : true)}
+                  onKickPlayer={handleKickPlayer}
+                  onTransferLeadership={handleRequestTransferLeadership}
+                  ping={ping}
+                  isConnected={isConnected}
+                  isOnline={isOnline}
+                  roomId={currentRoom?.id || 'public_table'}
+                  currentUser={{
+                    id: user.id || 'user_me',
+                    username: user.username || 'You',
+                    avatar: user.avatar || '🎲',
+                  }}
+                />
+              </div>
 
               {/* 3D Three.js Arena Component: Fills remaining open pavilion height */}
-            <div
-              id="three-arena-pavilion-container"
-              className="w-full flex-1 min-h-[160px] overflow-hidden relative"
-            >
-              <ThreeDiceArena
-                className="w-full h-full"
-                phase={phase}
-                dice={dice}
-                lastResult={lastResult}
-                tableTheme={tableTheme}
-                defaultCameraView={defaultCameraView}
-                bettingTimer={bettingTimer}
-                players={activeTablePlayers}
-                currentUserId={user.id}
-              />
+              <div
+                id="three-arena-pavilion-container"
+                className="w-full flex-1 min-h-[160px] lg:min-h-0 overflow-hidden relative"
+              >
+                <ThreeDiceArena
+                  className="w-full h-full"
+                  phase={phase}
+                  dice={dice}
+                  lastResult={lastResult}
+                  tableTheme={tableTheme}
+                  defaultCameraView={defaultCameraView}
+                  bettingTimer={bettingTimer}
+                  players={activeTablePlayers}
+                  currentUserId={user.id}
+                />
 
-              {/* Waiting for next round status badge located at bottom-center where the toast is located */}
-              {phase === 'payout' && (
-                <div
-                  id="consensus-next-round-overlay"
-                  className="absolute bottom-2.5 left-1/2 -translate-x-1/2 z-20 pointer-events-none flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-slate-950/90 backdrop-blur-md border border-amber-500/40 shadow-xl text-amber-200 font-mono text-[10px] whitespace-nowrap animate-in fade-in zoom-in-95 duration-200 select-none max-w-[95%]"
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping shrink-0" />
-                  <span className="font-medium text-amber-100/90 truncate">
-                    {Boolean(currentRoom ? currentRoom.hostId === user.id : true)
-                      ? 'Leader: Click Next Round to start'
-                      : 'Waiting for Leader to start'}
-                  </span>
-                </div>
-              )}
+                {/* Waiting for next round status badge located at bottom-center where the toast is located */}
+                {phase === 'payout' && (
+                  <div
+                    id="consensus-next-round-overlay"
+                    className="absolute bottom-2.5 left-1/2 -translate-x-1/2 z-20 pointer-events-none flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-slate-950/90 backdrop-blur-md border border-amber-500/40 shadow-xl text-amber-200 font-mono text-[10px] sm:text-xs whitespace-nowrap animate-in fade-in zoom-in-95 duration-200 select-none max-w-[95%]"
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping shrink-0" />
+                    <span className="font-medium text-amber-100/90 truncate">
+                      {Boolean(currentRoom ? currentRoom.hostId === user.id : true)
+                        ? 'Leader: Click Next Round to start'
+                        : 'Waiting for Leader to start'}
+                    </span>
+                  </div>
+                )}
 
-              {/* Floating Toast Notification: Positioned above the Next Round Badge when active, otherwise at bottom */}
-              {renderToastElement(
-                phase === 'payout'
-                  ? 'absolute bottom-9 sm:bottom-9.5 left-1/2 -translate-x-1/2 z-30'
-                  : 'absolute bottom-2.5 left-1/2 -translate-x-1/2 z-30'
-              )}
+                {/* Floating Toast Notification: Positioned above the Next Round Badge when active, otherwise at bottom */}
+                {renderToastElement(
+                  phase === 'payout'
+                    ? 'absolute bottom-9 sm:bottom-9.5 left-1/2 -translate-x-1/2 z-30'
+                    : 'absolute bottom-2.5 left-1/2 -translate-x-1/2 z-30'
+                )}
+              </div>
             </div>
 
-            {/* Traditional Mobile Betting Cloth Mat: Proportional & elegant across all screen sizes */}
-            <div
-              id="betting-panel-container"
-              className="w-full flex-1 max-h-[310px] sm:max-h-[340px] min-h-0 overflow-hidden flex flex-col justify-between shrink-0"
-            >
-              <MobileBettingMat
-                className="w-full h-full flex flex-col justify-between"
-                phase={phase}
-                userCoins={user.coins}
-                userBets={myBets}
-                tableBets={tableBets}
-                lastResult={lastResult}
-                selectedChip={selectedChip}
-                onSelectChip={setSelectedChip}
-                onPlaceBet={handlePlaceBet}
-                onClearTileBet={handleClearTileBet}
-                onClearBets={handleClearBets}
-                onDoubleBets={handleDoubleBets}
-                onRepeatBets={handleRepeatBets}
-                onInsufficientCoins={handleInsufficientCoins}
-                canRepeat={Boolean(previousBets && previousBetsTotal > 0)}
-                tableMatColor={tableTheme === 'midnight' ? 'royal' : tableTheme === 'crimson' ? 'crimson' : 'green'}
-              />
+            {/* Right Column (Desktop) / Bottom Section (Mobile): Traditional Betting Cloth Mat + Desktop Action Bar */}
+            <div className="flex flex-col gap-1 sm:gap-1.5 lg:gap-2.5 lg:col-span-6 xl:col-span-5 min-h-0 flex-1 lg:h-full justify-between shrink-0 lg:shrink">
+              {/* Traditional Betting Cloth Mat */}
+              <div
+                id="betting-panel-container"
+                className="w-full flex-1 max-h-[310px] sm:max-h-[340px] lg:max-h-none min-h-0 overflow-hidden flex flex-col justify-between shrink-0 lg:shrink"
+              >
+                <MobileBettingMat
+                  className="w-full h-full flex flex-col justify-between"
+                  phase={phase}
+                  userCoins={user.coins}
+                  userBets={myBets}
+                  tableBets={tableBets}
+                  lastResult={lastResult}
+                  selectedChip={selectedChip}
+                  onSelectChip={setSelectedChip}
+                  onPlaceBet={handlePlaceBet}
+                  onClearTileBet={handleClearTileBet}
+                  onClearBets={handleClearBets}
+                  onDoubleBets={handleDoubleBets}
+                  onRepeatBets={handleRepeatBets}
+                  onInsufficientCoins={handleInsufficientCoins}
+                  canRepeat={Boolean(previousBets && previousBetsTotal > 0)}
+                  tableMatColor={tableTheme === 'midnight' ? 'royal' : tableTheme === 'crimson' ? 'crimson' : 'green'}
+                />
+              </div>
+
+              {/* Desktop-only Integrated Action Bar: Directly below Betting Mat */}
+              <div className="hidden lg:block shrink-0 pt-1">
+                {phase === 'waiting' ? (
+                  /* WAITING PHASE: HOST SEES START GAME, MEMBERS SEE WAITING STATUS */
+                  <div className="w-full flex flex-col gap-2">
+                    {Boolean(currentRoom ? currentRoom.hostId === user.id : true) ? (
+                      <button
+                        id="desktop-host-start-table-game-btn"
+                        onClick={() => handleHostStartGame()}
+                        className="w-full py-3.5 sm:py-4 px-5 rounded-2xl bg-gradient-to-r from-amber-400 via-amber-300 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-serif font-black text-sm sm:text-base tracking-wider shadow-2xl shadow-amber-950/70 border border-amber-200 flex items-center justify-center gap-2.5 active:scale-[0.98] transition-all cursor-pointer"
+                      >
+                        <Crown className="w-5 h-5 fill-slate-950 text-slate-950" />
+                        <span>START GAME 🎲</span>
+                        <span className="text-xs font-mono font-bold bg-black/20 px-2.5 py-0.5 rounded-lg">
+                          {activeTablePlayers.length} Player{activeTablePlayers.length === 1 ? '' : 's'}
+                        </span>
+                      </button>
+                    ) : (
+                      <div className="w-full py-3.5 sm:py-4 px-5 rounded-2xl bg-slate-900/95 border border-amber-500/40 flex items-center justify-center gap-3 text-amber-300 font-bold text-sm sm:text-base tracking-wider shadow-2xl animate-pulse">
+                        <Clock className="w-5 h-5 text-amber-400 animate-spin" />
+                        <span>Waiting for Host to start the game...</span>
+                      </div>
+                    )}
+                  </div>
+                ) : phase === 'payout' ? (
+                  /* PAYOUT ACTIONS: LEADER SEES NEXT ROUND BUTTON, NON-LEADER PLAYERS SEE WAITING FOR LEADER */
+                  <div className="w-full">
+                    {Boolean(currentRoom ? currentRoom.hostId === user.id : true) ? (
+                      <button
+                        id="desktop-payout-next-round-btn"
+                        onClick={startNextRound}
+                        className="w-full py-3.5 sm:py-4 px-5 rounded-2xl font-serif font-black text-sm sm:text-base tracking-wider shadow-2xl transition-all flex items-center justify-center gap-2.5 border active:scale-[0.98] cursor-pointer bg-gradient-to-r from-amber-500 via-amber-400 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-amber-500/30 border-amber-200"
+                      >
+                        <Crown className="w-5 h-5 fill-slate-950 text-slate-950 shrink-0" />
+                        <span>NEXT ROUND 🎲</span>
+                        <ChevronRight className="w-5 h-5 shrink-0" />
+                      </button>
+                    ) : (
+                      <button
+                        id="desktop-payout-waiting-leader-btn"
+                        disabled
+                        className="w-full py-3.5 sm:py-4 px-5 rounded-2xl bg-slate-900/95 border border-amber-500/40 flex items-center justify-center gap-2.5 text-amber-300 font-bold text-sm sm:text-base tracking-wider shadow-2xl animate-pulse cursor-default select-none"
+                      >
+                        <Clock className="w-5 h-5 text-amber-400 animate-spin shrink-0" />
+                        <span>Waiting for Leader...</span>
+                      </button>
+                    )}
+                  </div>
+                ) : phase === 'rolling' ? (
+                  /* ROLLING PHASE: Shimmering Status Indicator */
+                  <div className="w-full py-3.5 sm:py-4 px-5 rounded-2xl bg-slate-900/90 border border-amber-500/30 flex items-center justify-center gap-2.5 text-amber-300 font-bold text-sm sm:text-base tracking-wider shadow-2xl animate-pulse">
+                    <Sparkles className="w-5 h-5 text-amber-400 animate-spin" />
+                    <span>Dealer is shaking the brass tumbler...</span>
+                  </div>
+                ) : (
+                  /* BETTING PHASE: Auto-Roll Status & Toggle Ready */
+                  <div className="flex items-center gap-2">
+                    <button
+                      id="desktop-user-ready-toggle-bar-btn"
+                      onClick={handleToggleUserReady}
+                      className={`flex-1 min-w-0 py-3.5 sm:py-4 px-4 sm:px-5 rounded-2xl font-serif font-black text-sm sm:text-base tracking-wider shadow-2xl border active:scale-[0.98] transition-all flex items-center justify-center gap-2.5 cursor-pointer ${
+                        isUserReady
+                          ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 border-emerald-300 text-slate-950 shadow-emerald-500/25'
+                          : 'bg-gradient-to-r from-amber-500 via-amber-400 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 border-amber-200 shadow-amber-500/30'
+                      }`}
+                    >
+                      <CheckCircle2 className={`w-5 h-5 shrink-0 ${isUserReady ? 'fill-slate-950 text-emerald-400' : 'text-slate-950'}`} />
+                      <span className="truncate">
+                        {isUserReady
+                          ? 'READY FOR ROLL ✓'
+                          : totalUserBet > 0
+                          ? `READY TO ROLL • ${totalUserBet >= 10000 ? `${(totalUserBet / 1000).toFixed(totalUserBet % 1000 === 0 ? 0 : 1)}K` : totalUserBet.toLocaleString()} 🪙`
+                          : 'READY TO ROLL'}
+                      </span>
+                      <span className="shrink-0 font-mono text-xs sm:text-sm font-black bg-black/20 px-2 py-0.5 rounded-lg">
+                        {Math.max(1, bettingTimer)}s
+                      </span>
+                    </button>
+
+                    {totalUserBet > 0 && (
+                      <button
+                        onClick={handleClearBets}
+                        title="Clear All Bets"
+                        className="py-3.5 sm:py-4 px-4 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-rose-400 text-xs sm:text-sm font-mono font-bold transition-all shadow-md shrink-0 flex items-center justify-center active:scale-95 cursor-pointer"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* 3. Bottom Action Bar: Elevated higher in fullscreen mode for comfortable thumb reach */}
+          {/* 3. Mobile & Tablet Bottom Action Bar (Hidden on Desktop where it is in Right Column) */}
           <div
-            className={`p-2 sm:p-2.5 border-t border-amber-900/30 bg-[#060913]/95 backdrop-blur-md shrink-0 ${
+            className={`lg:hidden p-2 sm:p-2.5 md:p-3 border-t border-amber-900/30 bg-[#060913]/95 backdrop-blur-md shrink-0 ${
               isFullscreen ? 'pb-7 sm:pb-8 pt-2.5 mb-1 sm:mb-1.5' : 'pb-2.5 sm:pb-3'
             }`}
           >
@@ -3546,29 +3644,28 @@ export default function App() {
                 )}
               </div>
             ) : phase === 'payout' ? (
-              /* PAYOUT ACTIONS: NEXT ROUND BUTTON */
+              /* PAYOUT ACTIONS: LEADER SEES NEXT ROUND BUTTON, NON-LEADER PLAYERS SEE WAITING FOR LEADER */
               <div className="w-full">
-                <button
-                  id="payout-next-round-btn"
-                  onClick={startNextRound}
-                  className={`w-full py-3.5 sm:py-4 px-5 rounded-2xl font-serif font-black text-sm sm:text-base tracking-wider shadow-2xl transition-all flex items-center justify-center gap-2.5 border active:scale-[0.98] cursor-pointer ${
-                    nextRoundVotes.includes(user.id)
-                      ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 border-emerald-300 text-slate-950 shadow-emerald-500/25'
-                      : 'bg-gradient-to-r from-amber-500 via-amber-400 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-amber-500/30 border-amber-200'
-                  }`}
-                >
-                  {nextRoundVotes.includes(user.id) ? (
-                    <>
-                      <CheckCircle2 className="w-5 h-5 fill-slate-950 text-emerald-400" />
-                      <span>READY FOR NEXT ROUND ({nextRoundVotes.length}/{Math.max(1, activeTablePlayers.length)})</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>NEXT ROUND 🎲</span>
-                      <ChevronRight className="w-5 h-5" />
-                    </>
-                  )}
-                </button>
+                {Boolean(currentRoom ? currentRoom.hostId === user.id : true) ? (
+                  <button
+                    id="payout-next-round-btn"
+                    onClick={startNextRound}
+                    className="w-full py-3.5 sm:py-4 px-5 rounded-2xl font-serif font-black text-sm sm:text-base tracking-wider shadow-2xl transition-all flex items-center justify-center gap-2.5 border active:scale-[0.98] cursor-pointer bg-gradient-to-r from-amber-500 via-amber-400 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-amber-500/30 border-amber-200"
+                  >
+                    <Crown className="w-5 h-5 fill-slate-950 text-slate-950 shrink-0" />
+                    <span>NEXT ROUND 🎲</span>
+                    <ChevronRight className="w-5 h-5 shrink-0" />
+                  </button>
+                ) : (
+                  <button
+                    id="payout-waiting-leader-btn"
+                    disabled
+                    className="w-full py-3.5 sm:py-4 px-5 rounded-2xl bg-slate-900/95 border border-amber-500/40 flex items-center justify-center gap-2.5 text-amber-300 font-bold text-sm sm:text-base tracking-wider shadow-2xl animate-pulse cursor-default select-none"
+                  >
+                    <Clock className="w-5 h-5 text-amber-400 animate-spin shrink-0" />
+                    <span>Waiting for Leader...</span>
+                  </button>
+                )}
               </div>
             ) : phase === 'rolling' ? (
               /* ROLLING PHASE: Shimmering Status Indicator */
@@ -3582,7 +3679,7 @@ export default function App() {
                 <button
                   id="user-ready-toggle-bar-btn"
                   onClick={handleToggleUserReady}
-                  className={`flex-1 min-w-0 py-3.5 sm:py-4 px-4 sm:px-5 rounded-2xl font-serif font-black text-sm sm:text-base tracking-wider shadow-2xl border active:scale-[0.98] transition-all flex items-center justify-center gap-2.5 ${
+                  className={`flex-1 min-w-0 py-3.5 sm:py-4 px-4 sm:px-5 rounded-2xl font-serif font-black text-sm sm:text-base tracking-wider shadow-2xl border active:scale-[0.98] transition-all flex items-center justify-center gap-2.5 cursor-pointer ${
                     isUserReady
                       ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 border-emerald-300 text-slate-950 shadow-emerald-500/25'
                       : 'bg-gradient-to-r from-amber-500 via-amber-400 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 border-amber-200 shadow-amber-500/30'
@@ -3605,7 +3702,7 @@ export default function App() {
                   <button
                     onClick={handleClearBets}
                     title="Clear All Bets"
-                    className="py-3.5 sm:py-4 px-4 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-rose-400 text-xs sm:text-sm font-mono font-bold transition-all shadow-md shrink-0 flex items-center justify-center active:scale-95"
+                    className="py-3.5 sm:py-4 px-4 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-rose-400 text-xs sm:text-sm font-mono font-bold transition-all shadow-md shrink-0 flex items-center justify-center active:scale-95 cursor-pointer"
                   >
                     Clear
                   </button>

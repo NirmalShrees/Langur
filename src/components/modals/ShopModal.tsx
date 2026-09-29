@@ -77,9 +77,9 @@ export const ShopModal: React.FC<ShopModalProps> = ({
   return (
     <div
       id="shop-modal-overlay"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-3 sm:p-4 overflow-x-hidden"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-3 sm:p-4 md:p-6 overflow-x-hidden"
     >
-      <div className="relative w-full max-w-2xl bg-gradient-to-b from-slate-900 via-[#0d121f] to-slate-950 rounded-3xl border border-amber-500/30 shadow-2xl p-4 sm:p-6 overflow-x-hidden flex flex-col max-h-[88vh]">
+      <div className="relative w-full max-w-2xl sm:max-w-3xl lg:max-w-4xl bg-gradient-to-b from-slate-900 via-[#0d121f] to-slate-950 rounded-3xl border border-amber-500/30 shadow-2xl p-4 sm:p-6 md:p-7 overflow-x-hidden flex flex-col max-h-[88vh]">
         {/* Ambient lighting accents */}
         <div className="absolute top-0 right-0 w-48 h-48 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute bottom-0 left-0 w-48 h-48 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
