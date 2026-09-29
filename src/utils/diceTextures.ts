@@ -90,35 +90,178 @@ export function getBlankDiceImageUrl(): string {
   return BLANK_DICE_TEXTURE_PATH;
 }
 
-// Single texture loader instance and material cache
+// Single texture loader instance and texture cache (textures cached, materials instantiated fresh per scene)
 const textureLoader = new THREE.TextureLoader();
-let cachedMaterials: THREE.MeshStandardMaterial[] | null = null;
+const cachedTextures: Record<string, THREE.Texture> = {};
 
-// Warm ivory parchment fallback canvas so mobile dice are NEVER black before textures finish downloading
-let fallbackParchmentCanvas: HTMLCanvasElement | null = null;
+// Warm ivory parchment fallback canvas with authentic symbol illustration so mobile dice are NEVER black
+const fallbackSymbolCanvases: Record<string, HTMLCanvasElement> = {};
 
-function getFallbackParchmentCanvas(): HTMLCanvasElement {
-  if (!fallbackParchmentCanvas && typeof document !== 'undefined') {
-    fallbackParchmentCanvas = document.createElement('canvas');
-    fallbackParchmentCanvas.width = 128;
-    fallbackParchmentCanvas.height = 128;
-    const ctx = fallbackParchmentCanvas.getContext('2d');
-    if (ctx) {
-      // Warm ivory parchment radial gradient matching traditional Himalayan wooden dice
-      const grad = ctx.createRadialGradient(64, 64, 10, 64, 64, 80);
-      grad.addColorStop(0, '#FFFDF0');
-      grad.addColorStop(0.7, '#FAF4D0');
-      grad.addColorStop(1, '#EDE5B5');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, 128, 128);
-
-      // Subtle vintage border inlay
-      ctx.strokeStyle = '#2A231E';
-      ctx.lineWidth = 4;
-      ctx.strokeRect(6, 6, 116, 116);
-    }
+function createSymbolFallbackCanvas(symbolKey: SymbolType): HTMLCanvasElement {
+  if (fallbackSymbolCanvases[symbolKey]) {
+    return fallbackSymbolCanvases[symbolKey];
   }
-  return fallbackParchmentCanvas || ({} as HTMLCanvasElement);
+
+  if (typeof document === 'undefined') {
+    return ({} as HTMLCanvasElement);
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return canvas;
+
+  // 1. Warm ivory parchment background matching authentic Himalayan dice
+  const grad = ctx.createRadialGradient(128, 128, 20, 128, 128, 160);
+  grad.addColorStop(0, '#FFFDF4');
+  grad.addColorStop(0.7, '#F7F0D4');
+  grad.addColorStop(1, '#E8DCAC');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 256, 256);
+
+  // 2. Vintage carved border inlay
+  ctx.strokeStyle = '#2B2118';
+  ctx.lineWidth = 10;
+  ctx.strokeRect(10, 10, 236, 236);
+
+  ctx.strokeStyle = '#B38F4D';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(18, 18, 220, 220);
+
+  // 3. Draw authentic vector symbol on the canvas
+  ctx.save();
+  ctx.translate(128, 128);
+
+  if (symbolKey === 'jhanda') {
+    // Red Pennant Flag 🚩
+    ctx.fillStyle = '#C02626';
+    ctx.beginPath();
+    ctx.moveTo(-45, -70);
+    ctx.lineTo(65, -30);
+    ctx.lineTo(-45, 10);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#7F1D1D';
+    ctx.lineWidth = 4;
+    ctx.stroke();
+
+    // Flagpole
+    ctx.strokeStyle = '#78350F';
+    ctx.lineWidth = 8;
+    ctx.beginPath();
+    ctx.moveTo(-45, -80);
+    ctx.lineTo(-45, 75);
+    ctx.stroke();
+
+    // Gold Finial Ball
+    ctx.fillStyle = '#F59E0B';
+    ctx.beginPath();
+    ctx.arc(-45, -80, 8, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (symbolKey === 'burja') {
+    // Royal Crown 👑
+    ctx.fillStyle = '#D97706';
+    ctx.strokeStyle = '#78350F';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(-65, 45);
+    ctx.lineTo(65, 45);
+    ctx.lineTo(55, -40);
+    ctx.lineTo(25, 0);
+    ctx.lineTo(0, -55);
+    ctx.lineTo(-25, 0);
+    ctx.lineTo(-55, -40);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Jewels
+    ctx.fillStyle = '#DC2626';
+    ctx.beginPath();
+    ctx.arc(0, 20, 10, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#2563EB';
+    ctx.beginPath();
+    ctx.arc(-35, 20, 8, 0, Math.PI * 2);
+    ctx.arc(35, 20, 8, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (symbolKey === 'itta') {
+    // Red Diamond ♦
+    ctx.fillStyle = '#DC2626';
+    ctx.strokeStyle = '#991B1B';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(0, -75);
+    ctx.lineTo(60, 0);
+    ctx.lineTo(0, 75);
+    ctx.lineTo(-60, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  } else if (symbolKey === 'paan') {
+    // Red Heart ♥
+    ctx.fillStyle = '#DC2626';
+    ctx.strokeStyle = '#991B1B';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(0, 55);
+    ctx.bezierCurveTo(-70, 0, -65, -60, 0, -25);
+    ctx.bezierCurveTo(65, -60, 70, 0, 0, 55);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  } else if (symbolKey === 'hukum') {
+    // Black Spade ♠
+    ctx.fillStyle = '#18181B';
+    ctx.strokeStyle = '#09090B';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(0, -65);
+    ctx.bezierCurveTo(55, -15, 65, 35, 0, 35);
+    ctx.bezierCurveTo(-65, 35, -55, -15, 0, -65);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Stem
+    ctx.beginPath();
+    ctx.moveTo(-15, 35);
+    ctx.lineTo(-25, 65);
+    ctx.lineTo(25, 65);
+    ctx.lineTo(15, 35);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  } else if (symbolKey === 'chidi') {
+    // Black Club ♣
+    ctx.fillStyle = '#18181B';
+    ctx.strokeStyle = '#09090B';
+    ctx.lineWidth = 4;
+
+    // 3 lobes
+    ctx.beginPath();
+    ctx.arc(0, -30, 30, 0, Math.PI * 2);
+    ctx.arc(-30, 15, 30, 0, Math.PI * 2);
+    ctx.arc(30, 15, 30, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Stem
+    ctx.beginPath();
+    ctx.moveTo(-15, 20);
+    ctx.lineTo(-25, 65);
+    ctx.lineTo(25, 65);
+    ctx.lineTo(15, 20);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  ctx.restore();
+
+  fallbackSymbolCanvases[symbolKey] = canvas;
+  return canvas;
 }
 
 // Preload all 6 dice PNG textures immediately into the browser image cache
@@ -127,7 +270,10 @@ const preloadedImages: Record<string, HTMLImageElement> = {};
 export function preloadDiceTextures(): Promise<void> {
   if (typeof window === 'undefined') return Promise.resolve();
 
-  const promises = Object.values(SYMBOL_IMAGE_PATHS).map((src) => {
+  const promises = Object.entries(SYMBOL_IMAGE_PATHS).map(([key, src]) => {
+    // Eagerly build procedural fallback canvas for instantaneous rendering
+    createSymbolFallbackCanvas(key as SymbolType);
+
     return new Promise<void>((resolve) => {
       if (preloadedImages[src] && preloadedImages[src].complete) {
         resolve();
@@ -136,9 +282,14 @@ export function preloadDiceTextures(): Promise<void> {
       const img = new Image();
       img.onload = () => {
         preloadedImages[src] = img;
+        if (cachedTextures[key]) {
+          cachedTextures[key].image = img;
+          cachedTextures[key].needsUpdate = true;
+        }
         resolve();
       };
       img.onerror = () => {
+        // Fallback canvas is already ready
         resolve();
       };
       img.src = src;
@@ -155,45 +306,58 @@ if (typeof window !== 'undefined') {
 }
 
 /**
- * Returns the 6 MeshStandardMaterials for the Three.js dice cube faces
- * using static GPU PNG image textures directly.
+ * Returns a cached or fresh THREE.Texture for the given symbol, guaranteed to be non-black on frame 0
  */
-export function getLangurBurjaDiceMaterials(): THREE.MeshStandardMaterial[] {
-  if (cachedMaterials) return cachedMaterials;
+export function getSymbolTexture(symbolKey: SymbolType): THREE.Texture {
+  if (cachedTextures[symbolKey]) {
+    return cachedTextures[symbolKey];
+  }
 
-  const materials: THREE.MeshStandardMaterial[] = [];
+  const texturePath = SYMBOL_IMAGE_PATHS[symbolKey];
+  const fallbackCanvas = createSymbolFallbackCanvas(symbolKey);
 
-  FACE_SYMBOL_MAP.forEach((symbolKey) => {
-    const texturePath = SYMBOL_IMAGE_PATHS[symbolKey];
+  // Initialize texture with instant procedural canvas
+  const texture = new THREE.Texture(fallbackCanvas as any);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  texture.generateMipmaps = true;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.needsUpdate = true;
 
-    // Create the texture and immediately assign the ivory parchment canvas as initial image
-    // so Three.js renders a tactile ivory die from frame 0 rather than a black WebGL placeholder
-    const texture = textureLoader.load(
+  // If high-res PNG is already decoded, swap it in
+  const cachedImg = preloadedImages[texturePath];
+  if (cachedImg && cachedImg.complete && cachedImg.naturalWidth > 0) {
+    (texture.image as any) = cachedImg;
+    texture.needsUpdate = true;
+  } else {
+    // Asynchronously load the high-res PNG
+    textureLoader.load(
       texturePath,
       (loadedTex) => {
-        loadedTex.needsUpdate = true;
+        (texture.image as any) = loadedTex.image;
+        texture.needsUpdate = true;
       },
       undefined,
       (err) => {
-        console.warn(`[DiceTexture] Failed loading ${texturePath}, using parchment fallback:`, err);
+        console.warn(`[DiceTexture] Using canvas texture for ${symbolKey}:`, err);
       }
     );
+  }
 
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.anisotropy = 4;
-    texture.generateMipmaps = true;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
-    texture.magFilter = THREE.LinearFilter;
+  cachedTextures[symbolKey] = texture;
+  return texture;
+}
 
-    // Check if the image is already preloaded and decoded in memory
-    const cachedImg = preloadedImages[texturePath];
-    if (cachedImg && cachedImg.complete && cachedImg.naturalWidth > 0) {
-      texture.image = cachedImg;
-      texture.needsUpdate = true;
-    } else if (typeof document !== 'undefined') {
-      (texture.image as any) = getFallbackParchmentCanvas();
-      texture.needsUpdate = true;
-    }
+/**
+ * Returns 6 fresh MeshStandardMaterials for the Three.js dice cube faces.
+ * Never shares disposed material instances across scenes, preventing black dice!
+ */
+export function getLangurBurjaDiceMaterials(): THREE.MeshStandardMaterial[] {
+  const materials: THREE.MeshStandardMaterial[] = [];
+
+  FACE_SYMBOL_MAP.forEach((symbolKey) => {
+    const texture = getSymbolTexture(symbolKey);
 
     const mat = new THREE.MeshStandardMaterial({
       map: texture,
@@ -201,11 +365,11 @@ export function getLangurBurjaDiceMaterials(): THREE.MeshStandardMaterial[] {
       metalness: 0.04,
       color: 0xffffff,
     });
+    mat.needsUpdate = true;
 
     materials.push(mat);
   });
 
-  cachedMaterials = materials;
   return materials;
 }
 

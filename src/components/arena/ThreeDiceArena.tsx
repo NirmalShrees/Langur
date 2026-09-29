@@ -406,11 +406,11 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
       }
     } else {
       hasRolledForCurrentPhaseRef.current = false;
-      // Note: In 'payout' or 'betting', the dice are ALREADY settled on the table from their roll.
-      // Do NOT recalculate or twitch their orientation when phase transitions to payout!
       activeRollSymbolsRef.current = [...dice];
+      // Immediately set dice orientations for current table room
+      updateDiceTargets(dice);
     }
-  }, [phase, dice, startRollAnimation]);
+  }, [phase, dice, startRollAnimation, updateDiceTargets]);
 
   // Update winning glow halos in payout phase
   useEffect(() => {
@@ -854,6 +854,11 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
       animationFrameRef.current = requestAnimationFrame(animate);
       lastFrameTime = time;
 
+      // Skip GPU draw calls when tab is hidden or minimized to save mobile battery and memory
+      if (typeof document !== 'undefined' && document.hidden) {
+        return;
+      }
+
       // Compute dynamic zoom-out during bucket shake so the bucket never looks too close to the camera
       let targetShakeZoom = 0;
       let targetLookAtY = 0.25;
@@ -1211,6 +1216,13 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
     });
     resizeObserver.observe(container);
 
+    // Initial instant double-check resize to ensure canvas is properly sized on initial layout calculation
+    const initRaf = requestAnimationFrame(() => {
+      if (container) {
+        handleContainerResize(container.clientWidth, container.clientHeight);
+      }
+    });
+
     const handleWindowResize = () => {
       if (container) {
         handleContainerResize(container.clientWidth, container.clientHeight);
@@ -1221,8 +1233,10 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
 
     const handleContextLost = (event: Event) => {
       event.preventDefault();
+      console.warn('[ThreeDiceArena] WebGL Context Lost - pausing render loop');
     };
     const handleContextRestored = () => {
+      console.log('[ThreeDiceArena] WebGL Context Restored - resuming render');
       if (rendererRef.current && sceneRef.current && cameraRef.current) {
         rendererRef.current.render(sceneRef.current, cameraRef.current);
       }
@@ -1231,6 +1245,7 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
     renderer.domElement.addEventListener('webglcontextrestored', handleContextRestored, false);
 
     return () => {
+      cancelAnimationFrame(initRaf);
       cancelAnimationFrame(animationFrameRef.current);
       resizeObserver.disconnect();
       window.removeEventListener('resize', handleWindowResize);
@@ -1246,6 +1261,11 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
       if (renderer.domElement && renderer.domElement.parentNode) {
         renderer.domElement.parentNode.removeChild(renderer.domElement);
       }
+
+      // Explicitly free WebGL context on mobile devices to prevent hitting max WebGL context limits
+      try {
+        renderer.forceContextLoss();
+      } catch {}
 
       renderer.dispose();
       feltGeo.dispose();

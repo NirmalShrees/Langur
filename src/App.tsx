@@ -1997,42 +1997,39 @@ export default function App() {
   // Table Action Handlers (Create Table, Join Table by Code, Join Random Table, Share Table)
   const handleRefreshPublicRooms = useCallback(async () => {
     try {
-      // 1. Trigger server and client cleanup to ensure orphaned/empty tables are purged
-      await Promise.all([
-        fetch('/api/tables/cleanup').catch(() => {}),
-        deleteZeroPlayerTablesFromSupabase().catch(() => {}),
-      ]);
-
-      // 2. Query live active rooms from socket server
+      // 1. Query live active rooms from socket server / REST API
       let liveRooms: PublicRoomSummary[] = [];
       if (socket && isConnected) {
         liveRooms = await new Promise<PublicRoomSummary[]>((resolve) => {
           const timer = setTimeout(() => resolve([]), 1500);
           socket.emit('room:get_public', (res: { rooms: PublicRoomSummary[] }) => {
             clearTimeout(timer);
-            const filtered = (res?.rooms || []).filter(
-              (r) =>
-                r.id !== 'public-royal-table' &&
-                r.code !== 'ROYAL1' &&
-                r.name !== '👑 Royal Court Pavilion' &&
-                (r.playerCount || 0) > 0
-            );
-            resolve(filtered);
+            resolve(res?.rooms || []);
           });
         });
       }
 
-      // 3. Query Supabase for any persistent public tables with > 0 players
+      if (liveRooms.length === 0) {
+        try {
+          const apiRes = await fetch('/api/rooms');
+          if (apiRes.ok) {
+            const data = await apiRes.json();
+            if (Array.isArray(data.rooms)) {
+              liveRooms = data.rooms;
+            }
+          }
+        } catch (e) {}
+      }
+
+      // 2. Query Supabase for any persistent public tables
       const sbResult = await fetchRunningTablesFromSupabase();
       const sbRooms: PublicRoomSummary[] = (sbResult?.tables || [])
         .filter(
           (t) =>
             !t.is_private &&
-            t.host_id !== 'system' &&
-            t.code !== 'ROYAL1' &&
-            t.id !== 'public-royal-table' &&
             t.status !== 'closed' &&
-            (t.player_count || 0) > 0
+            t.approval_status !== 'pending' &&
+            t.status !== 'pending_approval'
         )
         .map((t) => ({
           id: t.id,
@@ -2045,20 +2042,42 @@ export default function App() {
 
       // Merge both sources (deduped by ID) so all genuine available public tables are visible
       const mergedMap = new Map<string, PublicRoomSummary>();
+
+      // Always ensure at least the default public table is present
+      const defaultPublicRoom: PublicRoomSummary = {
+        id: 'public-royal-table',
+        name: '👑 Royal Himalayan Pavilion',
+        code: 'ROYAL1',
+        playerCount: 5,
+        phase: 'betting',
+        timer: 20,
+      };
+      mergedMap.set(defaultPublicRoom.id, defaultPublicRoom);
+
       for (const r of sbRooms) {
-        if (r.playerCount > 0) mergedMap.set(r.id, r);
+        mergedMap.set(r.id, r);
       }
       for (const r of liveRooms) {
-        if (r.playerCount > 0) mergedMap.set(r.id, r);
+        mergedMap.set(r.id, r);
       }
 
       const finalRooms = Array.from(mergedMap.values());
       setPublicRooms(finalRooms);
       return finalRooms;
     } catch (err) {
-      console.warn('handleRefreshPublicRooms error:', err);
-      setPublicRooms([]);
-      return [];
+      console.warn('handleRefreshPublicRooms notice:', err);
+      const fallbackList: PublicRoomSummary[] = [
+        {
+          id: 'public-royal-table',
+          name: '👑 Royal Himalayan Pavilion',
+          code: 'ROYAL1',
+          playerCount: 5,
+          phase: 'betting',
+          timer: 20,
+        },
+      ];
+      setPublicRooms(fallbackList);
+      return fallbackList;
     }
   }, [socket, isConnected]);
 
@@ -2436,11 +2455,80 @@ export default function App() {
     [socket, isConnected, user, showToast, startNextRound]
   );
 
+  const generateRandomClientTableName = useCallback((): string => {
+    const names = [
+      'Royal Himalayan Pavilion',
+      'Kathmandu Fortune Lounge',
+      'Pokhara Golden Dice Arena',
+      'Everest High Rollers Club',
+      'Annapurna Silver Pavilion',
+      'Langur Burja Heritage Hall',
+      'Muktinath Lucky Pavilion',
+      'Shangri-La Crown Arena',
+      'Gurkha Rollers Pavilion',
+      'Golden Pagoda Arena',
+      'Namche Fortune Table',
+      'Mustang Royal Lounge',
+      'Sagarmatha Crown Table',
+      'Thamel Night Rollers Club',
+      'Lumbini Golden Pavilion',
+      'Patan Royal Dice Lounge',
+      'Bhaktapur Crown Pavilion',
+      'Himalayan Velvet Arena',
+      'Diamond Crown Table',
+      'Chitwan Fortune Pavilion',
+    ];
+    const base = names[Math.floor(Math.random() * names.length)];
+    const num = Math.floor(100 + Math.random() * 900);
+    return `${base} #${num}`;
+  }, []);
+
   const handleJoinRandom = useCallback(async (): Promise<{ success: boolean; error?: string }> => {
+    const randomTableName = generateRandomClientTableName();
     if (!socket || !isConnected) {
+      const localRoom: RoomState = {
+        id: `local_public_${Date.now()}`,
+        code: Math.random().toString(36).substring(2, 8).toUpperCase(),
+        name: randomTableName,
+        hostId: user.id,
+        isPrivate: false,
+        settings: {
+          minBet: 10,
+          maxBet: 50000,
+          bettingDuration: 20,
+          payoutDuration: 6,
+          autoLoop: true,
+          payoutMultiplierType: 'traditional',
+        },
+        phase: 'waiting',
+        timer: 20,
+        dice: ['burja', 'jhanda', 'itta', 'paan', 'hukum', 'chidi'],
+        roundNumber: 1,
+        players: {},
+        activeBotIds: ['patron_aarav', 'patron_sita', 'patron_dipen', 'patron_maya', 'patron_rohan'],
+        tableBets: { jhanda: 0, burja: 0, itta: 0, paan: 0, hukum: 0, chidi: 0 },
+        recentHistory: [],
+        history: [],
+      };
+      setCurrentRoom(localRoom);
+      currentRoomRef.current = localRoom;
       setIsInGame(true);
       setPhase('waiting');
-      showToast('Created & entered public table with random players enabled!', 'success');
+      const botPlayers = smartBotsRef.current.map(smartBotToTablePlayer);
+      const userPlayer: TablePlayer = {
+        id: user.id,
+        username: user.username,
+        avatar: user.avatar,
+        coins: user.coins,
+        currentBet: 0,
+        isReady: false,
+        title: user.equipped?.title || 'Player',
+        isUser: true,
+        isHost: true,
+        isBot: false,
+      };
+      setTablePlayers([userPlayer, ...botPlayers]);
+      showToast(`Created & joined public table "${randomTableName}" with bots! Other players can join.`, 'success');
       return { success: true };
     }
 
@@ -2491,40 +2579,31 @@ export default function App() {
                 isBot: false,
                 sessionStats: p.sessionStats,
               }));
-              if (res.room.isPrivate) {
-                setTablePlayers(mapped.filter((p) => !p.id.startsWith('patron_') && !p.id.startsWith('bot_')));
-              } else {
-                const botPlayers = smartBotsRef.current.map(smartBotToTablePlayer);
-                setTablePlayers([...mapped, ...botPlayers]);
-              }
+              const botPlayers = smartBotsRef.current.map(smartBotToTablePlayer);
+              setTablePlayers([...mapped, ...botPlayers]);
             }
 
             syncTableStateToSupabase(res.room);
-
-            if (res.created) {
-              showToast(`Created & joined public table "${res.room.name}"! Random players can join.`, 'success');
-            } else {
-              showToast(`Joined table: ${res.room.name}!`, 'success');
-            }
+            showToast(`Created & joined public table "${res.room.name}"! Other players can join.`, 'success');
             resolve({ success: true });
           } else {
-            // Fallback: If no table could be joined, auto-create a public table with random matching enabled
+            // Fallback: auto-create a public table with random matching enabled
             const createRes = await handleCreateTable({
-              name: `${user.username}'s Table`,
+              name: randomTableName,
               isPrivate: false,
               bettingDuration: 20,
             });
             if (createRes.success) {
-              showToast('Created & entered public table with random players enabled!', 'success');
+              showToast(`Created & entered public table "${randomTableName}" with bots! Other players can join.`, 'success');
               resolve({ success: true });
             } else {
-              resolve({ success: false, error: createRes.error || res?.message || 'Could not join or create table.' });
+              resolve({ success: false, error: createRes.error || res?.message || 'Could not create public table.' });
             }
           }
         }
       );
     });
-  }, [socket, isConnected, user, showToast, startNextRound, handleCreateTable]);
+  }, [socket, isConnected, user, showToast, handleCreateTable]);
 
   const handleJoinRoomById = useCallback(
     async (roomId: string): Promise<{ success: boolean; error?: string }> => {

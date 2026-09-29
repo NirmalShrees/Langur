@@ -121,17 +121,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   return (
     <div
       id="auth-modal-backdrop"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/90 backdrop-blur-sm animate-in fade-in duration-150"
       onClick={canDismiss ? onClose : undefined}
     >
       <div
         id="auth-modal-container"
-        className="w-full max-w-sm sm:max-w-md bg-gradient-to-b from-[#0d1424] via-[#090e1a] to-[#050811] border border-amber-500/40 rounded-3xl p-5 sm:p-6 shadow-2xl shadow-black/90 relative overflow-hidden text-slate-100 select-none animate-in zoom-in-95 duration-200 max-h-[94vh] flex flex-col"
+        className="w-full max-w-sm sm:max-w-md bg-gradient-to-b from-[#0d1424] via-[#090e1a] to-[#050811] border border-amber-500/40 rounded-3xl p-5 sm:p-6 shadow-2xl shadow-black/90 relative overflow-hidden text-slate-100 select-none animate-in zoom-in-95 duration-150 max-h-[94vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Subtle decorative warm glow */}
-        <div className="absolute top-0 right-0 -mr-16 -mt-16 w-44 h-44 bg-amber-500/15 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute bottom-0 left-0 -ml-16 -mb-16 w-44 h-44 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute top-0 right-0 -mr-12 -mt-12 w-32 h-32 bg-amber-500/10 rounded-full pointer-events-none" />
+        <div className="absolute bottom-0 left-0 -ml-12 -mb-12 w-32 h-32 bg-emerald-500/10 rounded-full pointer-events-none" />
 
         {/* Close Button */}
         {canDismiss && (

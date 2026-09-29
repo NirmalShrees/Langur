@@ -240,17 +240,17 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   return (
     <div
       id="profile-modal-backdrop"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/90 backdrop-blur-sm animate-in fade-in duration-150"
       onClick={onClose}
     >
       <div
         id="profile-modal-content"
-        className="w-full max-w-md max-h-[92dvh] bg-gradient-to-b from-[#0d1526] via-[#090f1d] to-[#050811] border border-amber-500/45 rounded-3xl shadow-2xl shadow-black/90 relative overflow-hidden flex flex-col text-slate-100 select-none animate-in zoom-in-95 duration-200"
+        className="w-full max-w-md max-h-[92dvh] bg-gradient-to-b from-[#0d1526] via-[#090f1d] to-[#050811] border border-amber-500/45 rounded-3xl shadow-2xl shadow-black/90 relative overflow-hidden flex flex-col text-slate-100 select-none animate-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Glow accents */}
-        <div className="absolute top-0 right-0 -mr-16 -mt-16 w-44 h-44 bg-amber-500/15 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute bottom-0 left-0 -ml-16 -mb-16 w-44 h-44 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+        {/* Subtle decorative accents */}
+        <div className="absolute top-0 right-0 -mr-12 -mt-12 w-32 h-32 bg-amber-500/10 rounded-full pointer-events-none" />
+        <div className="absolute bottom-0 left-0 -ml-12 -mb-12 w-32 h-32 bg-emerald-500/10 rounded-full pointer-events-none" />
 
         {/* Modal Header */}
         <div className="p-4 sm:p-5 pb-3 border-b border-amber-500/20 flex items-center justify-between shrink-0 bg-slate-950/60">

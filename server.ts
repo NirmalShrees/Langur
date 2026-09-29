@@ -7,7 +7,7 @@ import path from 'path';
 import { Server as SocketIOServer } from 'socket.io';
 import { createServer as createViteServer } from 'vite';
 import { db, SHOP_ITEMS } from './server/db.js';
-import { GameEngine } from './server/gameEngine.js';
+import { GameEngine, generateRandomTableName } from './server/gameEngine.js';
 import { RoomState } from './src/types.js';
 import {
   deleteTableFromSupabase,
@@ -26,6 +26,7 @@ import {
   saveTableRequestToSupabase,
   fetchPendingTableRequestsFromSupabase,
   saveTableToSupabaseSafe,
+  syncTableStateToSupabaseServer,
 } from './server/supabase.js';
 
 async function startServer() {
@@ -1456,22 +1457,38 @@ async function startServer() {
       }
     });
 
-    socket.on('room:join_random', (payload: { user: any }, callback) => {
-      const publicRooms = gameEngine.getPublicRooms();
-      const availableRooms = (publicRooms || []).filter((r) => r.playerCount < 16);
-      if (availableRooms.length > 0) {
-        // Prefer active public rooms with players that still have open seats
-        const sorted = [...availableRooms].sort((a, b) => b.playerCount - a.playerCount);
-        const targetRoomId = sorted[0].id;
-        currentRoomId = targetRoomId;
-        currentUserId = payload.user.id;
-        const joinResult = gameEngine.joinRoom(socket, targetRoomId, payload.user);
+    socket.on('room:join_random', async (payload: { user: any }, callback) => {
+      try {
+        const u = payload.user || {};
+        const tableName = generateRandomTableName();
+
+        // Create a brand new public table with bots
+        const room = gameEngine.createRoom(
+          u,
+          tableName,
+          false, // isPrivate = false so other real players can join
+          { minBet: 10, maxBet: 50000, bettingDuration: 20, autoLoop: true },
+          24,
+          true
+        );
+
+        // Populate bots for multiplayer gameplay
+        room.activeBotIds = ['patron_aarav', 'patron_sita', 'patron_dipen', 'patron_maya', 'patron_rohan'];
+        currentRoomId = room.id;
+        currentUserId = u.id;
+        const joinResult = gameEngine.joinRoom(socket, room.id, u);
+
+        // Sync table to Supabase and broadcast available rooms update
+        syncTableStateToSupabaseServer(room).catch(() => {});
+        io.emit('rooms:updated', { rooms: gameEngine.getPublicRooms() });
+
         if (typeof callback === 'function') {
-          callback({ ...joinResult, created: false });
+          callback({ success: true, room: joinResult.room || room, created: true });
         }
-      } else {
+      } catch (err: any) {
+        console.warn('[Server] Error in room:join_random:', err);
         if (typeof callback === 'function') {
-          callback({ success: false, message: 'No open public tables found right now. You can request a table or join by code.' });
+          callback({ success: false, message: err?.message || 'Failed creating new public table' });
         }
       }
     });

@@ -22,6 +22,35 @@ import {
   SupabaseTableRecord,
 } from './supabase.js';
 
+export const RANDOM_PUBLIC_TABLE_NAMES = [
+  'Royal Himalayan Pavilion',
+  'Kathmandu Fortune Lounge',
+  'Pokhara Golden Dice Arena',
+  'Everest High Rollers Club',
+  'Annapurna Silver Pavilion',
+  'Langur Burja Heritage Hall',
+  'Muktinath Lucky Pavilion',
+  'Shangri-La Crown Arena',
+  'Gurkha Rollers Pavilion',
+  'Golden Pagoda Arena',
+  'Namche Fortune Table',
+  'Mustang Royal Lounge',
+  'Sagarmatha Crown Table',
+  'Thamel Night Rollers Club',
+  'Lumbini Golden Pavilion',
+  'Patan Royal Dice Lounge',
+  'Bhaktapur Crown Pavilion',
+  'Himalayan Velvet Arena',
+  'Diamond Crown Table',
+  'Chitwan Fortune Pavilion',
+];
+
+export function generateRandomTableName(): string {
+  const base = RANDOM_PUBLIC_TABLE_NAMES[Math.floor(Math.random() * RANDOM_PUBLIC_TABLE_NAMES.length)];
+  const num = Math.floor(100 + Math.random() * 900);
+  return `${base} #${num}`;
+}
+
 export class GameEngine {
   public static readonly MAX_PLAYERS_PER_TABLE = 16;
   private io: Server;
@@ -32,6 +61,7 @@ export class GameEngine {
 
   constructor(io: Server) {
     this.io = io;
+    this.ensureDefaultPublicRoom();
     this.hydrateFromSupabase().catch((err) => {
       console.warn('[GameEngine] Background hydration notice:', err);
     });
@@ -44,6 +74,58 @@ export class GameEngine {
         console.warn('[Server GC] 5-minute background sweep notice:', err);
       });
     }, 5 * 60 * 1000);
+  }
+
+  /**
+   * Ensures there is always at least one permanent, active public room for players to join.
+   */
+  public ensureDefaultPublicRoom(): RoomState {
+    const existing = this.rooms.get('public-royal-table');
+    if (existing) {
+      this.cancelRoomCleanup('public-royal-table');
+      return existing;
+    }
+
+    const defaultRoom: RoomState = {
+      id: 'public-royal-table',
+      code: 'ROYAL1',
+      name: '👑 Royal Himalayan Pavilion',
+      hostId: 'system_host',
+      isPrivate: false,
+      settings: {
+        minBet: 10,
+        maxBet: 50000,
+        bettingDuration: 20,
+        payoutDuration: 6,
+        autoLoop: true,
+        payoutMultiplierType: 'traditional',
+      },
+      phase: 'betting',
+      timer: 20,
+      phaseStartedAt: Date.now(),
+      phaseEndsAt: Date.now() + 20000,
+      expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+      validityDays: 365,
+      validity_days: 365,
+      validityHours: 365 * 24,
+      dice: ['burja', 'jhanda', 'itta', 'paan', 'hukum', 'chidi'],
+      roundNumber: 1,
+      players: {},
+      activeBotIds: ['patron_aarav', 'patron_sita', 'patron_dipen', 'patron_maya', 'patron_rohan'],
+      tableBets: { jhanda: 0, burja: 0, itta: 0, paan: 0, hukum: 0, chidi: 0 },
+      recentHistory: [],
+      history: [],
+      tableStats: {
+        totalRounds: 0,
+        totalBets: 0,
+        totalPayouts: 0,
+        highestRoundPool: 0,
+      },
+    };
+
+    this.rooms.set('public-royal-table', defaultRoom);
+    this.startRoomLoop('public-royal-table');
+    return defaultRoom;
   }
 
   /**
@@ -297,6 +379,7 @@ export class GameEngine {
   }
 
   public getPublicRooms(): { id: string; name: string; code: string; playerCount: number; phase: string; timer: number }[] {
+    this.ensureDefaultPublicRoom();
     const list: { id: string; name: string; code: string; playerCount: number; phase: string; timer: number }[] = [];
     const now = Date.now();
     for (const r of this.rooms.values()) {
@@ -308,11 +391,14 @@ export class GameEngine {
         (p) => !p.id.startsWith('patron_') && !p.id.startsWith('bot_')
       );
       if (!r.isPrivate) {
+        // Active table player count (at least bots count if bots present or real players)
+        const botCount = (r.activeBotIds || []).length;
+        const totalCount = realPlayers.length > 0 ? realPlayers.length : (botCount > 0 ? botCount : 1);
         list.push({
           id: r.id,
           name: r.name,
           code: r.code,
-          playerCount: realPlayers.length,
+          playerCount: totalCount,
           phase: r.phase,
           timer: r.timer,
         });
@@ -594,27 +680,22 @@ export class GameEngine {
     );
     const remainingPlayerIds = remainingRealPlayers.map((p) => p.id);
 
-    // If no real players remain at the table (0 real players), check if table duration is expired
+    // If no real players remain at the table (0 real players), delete the table (unless it is the permanent public pavilion)
     if (remainingRealPlayers.length === 0) {
-      const now = Date.now();
-      const expiresMs = room.expiresAt ? (typeof room.expiresAt === 'number' ? room.expiresAt : new Date(room.expiresAt).getTime()) : 0;
-      const isExpired = expiresMs > 0 && now >= expiresMs;
-
-      if (isExpired) {
-        this.destroyRoom(roomId);
-        deleteTableFromSupabase(roomId).catch(() => {});
-        this.io.to(`room:${roomId}`).emit('room:player_left', { userId, roomState: room, tableClosed: true });
-        this.io.to(`room:${roomId}`).emit('room:disbanded', { reason: 'Table duration has expired.' });
+      if (roomId === 'public-royal-table') {
+        room.phase = 'waiting';
+        room.tableBets = { jhanda: 0, burja: 0, itta: 0, paan: 0, hukum: 0, chidi: 0 };
+        syncTableStateToSupabaseServer(room).catch(() => {});
+        this.io.to(`room:${roomId}`).emit('room:player_left', { userId, roomState: room, tableClosed: false });
+        this.io.emit('rooms:updated', { rooms: this.getPublicRooms() });
         return;
       }
 
-      // Unexpired table remains alive! Set phase to 'waiting' and sync to Supabase
-      room.phase = 'waiting';
-      room.tableBets = { jhanda: 0, burja: 0, itta: 0, paan: 0, hukum: 0, chidi: 0 };
-      syncTableStateToSupabaseServer(room).catch((err) => {
-        console.warn('[GameEngine] Failed to sync updated table state to Supabase:', err);
-      });
-      this.io.to(`room:${roomId}`).emit('room:player_left', { userId, roomState: room, tableClosed: false });
+      // Automatically delete and purge table from memory and Supabase
+      this.destroyRoom(roomId);
+      this.io.to(`room:${roomId}`).emit('room:player_left', { userId, roomState: room, tableClosed: true });
+      this.io.to(`room:${roomId}`).emit('room:disbanded', { reason: 'No real players remain. Table closed.' });
+      this.io.emit('rooms:updated', { rooms: this.getPublicRooms() });
       return;
     }
 
