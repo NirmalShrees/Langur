@@ -3617,9 +3617,10 @@ export default function App() {
 
           {/* 3. Mobile & Tablet Bottom Action Bar (Hidden on Desktop where it is in Right Column) */}
           <div
-            className={`lg:hidden p-2 sm:p-2.5 md:p-3 border-t border-amber-900/30 bg-[#060913]/95 backdrop-blur-md shrink-0 ${
-              isFullscreen ? 'pb-7 sm:pb-8 pt-2.5 mb-1 sm:mb-1.5' : 'pb-2.5 sm:pb-3'
+            className={`lg:hidden p-2 sm:p-2.5 md:p-3 border-t border-amber-900/30 bg-[#060913] shrink-0 transform-gpu ${
+              isFullscreen ? 'pb-[max(1.75rem,env(safe-area-inset-bottom,1.75rem))] pt-2.5 mb-1 sm:mb-1.5' : 'pb-[max(0.625rem,env(safe-area-inset-bottom,0.625rem))] sm:pb-3'
             }`}
+            style={{ transform: 'translateZ(0)' }}
           >
             {phase === 'waiting' ? (
               /* WAITING PHASE: HOST SEES START GAME, MEMBERS SEE WAITING STATUS */

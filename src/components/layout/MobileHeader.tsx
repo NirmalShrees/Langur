@@ -36,7 +36,8 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
   return (
     <header
       id="mobile-game-header"
-      className="w-full bg-slate-950/95 backdrop-blur-md border-b border-amber-900/40 px-3 py-2 sm:px-4 sm:py-2.5 md:px-5 md:py-3 select-none z-30 shadow-md"
+      className="w-full bg-slate-950 border-b border-amber-900/40 px-3 py-2 sm:px-4 sm:py-2.5 md:px-5 md:py-3 pt-[max(0.5rem,env(safe-area-inset-top,0.5rem))] select-none z-30 shadow-md transform-gpu will-change-transform shrink-0"
+      style={{ transform: 'translateZ(0)' }}
     >
       <div className="flex items-center justify-between gap-2 max-w-full">
         {/* Left: Tap Avatar & Name to Open Profile */}

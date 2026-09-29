@@ -139,7 +139,8 @@ export const MainMenu: React.FC<MainMenuProps> = ({
   return (
     <div
       id="main-menu-screen"
-      className={`w-full max-w-md sm:max-w-lg md:max-w-2xl lg:max-w-4xl xl:max-w-5xl h-[100dvh] max-h-screen md:h-[94vh] md:max-h-[920px] md:my-auto md:rounded-3xl flex flex-col justify-between ${currentTheme.screenBg} text-slate-100 shadow-2xl border-x md:border ${currentTheme.screenBorder} select-none overflow-y-auto scrollbar-none p-3 sm:p-4 md:p-5 lg:p-6 transition-all duration-200`}
+      className={`w-full max-w-md sm:max-w-lg md:max-w-2xl lg:max-w-4xl xl:max-w-5xl h-[100dvh] max-h-screen md:h-[94vh] md:max-h-[920px] md:my-auto md:rounded-3xl flex flex-col justify-between ${currentTheme.screenBg} text-slate-100 shadow-2xl border-x md:border ${currentTheme.screenBorder} select-none overflow-y-auto scrollbar-none p-3 sm:p-4 md:p-5 lg:p-6 pt-[max(0.75rem,env(safe-area-inset-top,0.75rem))] transition-all duration-200 transform-gpu`}
+      style={{ transform: 'translateZ(0)' }}
     >
       {/* 1 & 2. Top Nav Panel & Profile Panel (Directly Touching - No Gap) */}
       <div className={`shrink-0 flex flex-col rounded-2xl md:rounded-3xl bg-slate-900/90 ${currentTheme.panelBorder} shadow-lg shadow-black/40 overflow-hidden divide-y ${currentTheme.panelDivide}`}>
