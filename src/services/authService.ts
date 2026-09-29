@@ -423,7 +423,16 @@ export async function syncProfileToSupabase(profile: UserProfile): Promise<{ suc
 
     let { error } = await supabase.from('profiles').upsert(mergedPayload, { onConflict: 'id' });
 
-    // Fallback 0: If 'notifications' column does not exist yet in table, remove from top-level and retry
+    // Fallback 0: If 'can_create_table' column does not exist yet in table, remove and retry (stored in stats JSONB)
+    if (error && (error.message?.toLowerCase().includes('can_create_table') || error.code === 'PGRST204')) {
+      delete mergedPayload.can_create_table;
+      delete mergedPayload.table_permission_expires_at;
+      delete mergedPayload.table_validity_days;
+      const res = await supabase.from('profiles').upsert(mergedPayload, { onConflict: 'id' });
+      error = res.error;
+    }
+
+    // Fallback 0.2: If 'notifications' column does not exist yet in table, remove from top-level and retry
     if (error && (error.message?.toLowerCase().includes('notifications') || error.code === 'PGRST204')) {
       delete mergedPayload.notifications;
       const res = await supabase.from('profiles').upsert(mergedPayload, { onConflict: 'id' });

@@ -37,15 +37,30 @@ export interface SupabaseTableRecord {
   betting_duration?: number;
   player_count?: number;
   status: 'waiting' | 'active' | 'closed';
+  approval_status?: 'pending' | 'approved' | 'declined';
   player_stats?: any[];
-  players?: any[];
   history?: any[];
   table_stats?: any;
+  approval_meta?: {
+    admin_id?: string;
+    admin_name?: string;
+    message?: string;
+    approved_at?: string;
+  };
   expires_at?: string;
-  validity_days?: number;
-  approval_status?: 'pending' | 'approved' | 'rejected';
   created_at?: string;
   updated_at?: string;
+
+  // Legacy fallback fields
+  leader_id?: string;
+  leader_name?: string;
+  approved?: boolean;
+  approved_by_admin_id?: string;
+  approved_by_admin_name?: string;
+  admin_approval_message?: string;
+  approved_at?: string;
+  players?: any[];
+  validity_days?: number;
 }
 
 /**
@@ -145,6 +160,7 @@ export async function fetchActiveTablesFromSupabase(): Promise<SupabaseTableReco
       .from('game_tables')
       .select('*')
       .in('status', ['waiting', 'active'])
+      .eq('approved', true)
       .order('updated_at', { ascending: false })
       .limit(50);
 
@@ -367,55 +383,40 @@ export async function syncTableStateToSupabaseServer(room: RoomState): Promise<b
     const hostPlayer = room.players[room.hostId];
     const hostName = hostPlayer?.username || 'Host';
 
-    const leaderId = (room as any).leaderId || (room as any).leader_id || room.hostId;
-    const leaderName = (room as any).leaderName || (room as any).leader_name || hostName;
-    const approvedByAdminId = (room as any).approvedByAdminId || (room as any).approved_by_admin_id;
-    const approvedByAdminName = (room as any).approvedByAdminName || (room as any).approved_by_admin_name;
-    const adminApprovalMessage = (room as any).adminApprovalMessage || (room as any).admin_approval_message;
-    const approvedAt = (room as any).approvedAt || (room as any).approved_at || new Date().toISOString();
+    const approvalMeta = {
+      admin_id: (room as any).approvedByAdminId || (room as any).approved_by_admin_id,
+      admin_name: (room as any).approvedByAdminName || (room as any).approved_by_admin_name,
+      message: (room as any).adminApprovalMessage || (room as any).admin_approval_message,
+      approved_at: (room as any).approvedAt || (room as any).approved_at || new Date().toISOString(),
+    };
 
     const payload: Record<string, any> = {
       id: room.id,
       code: room.code.trim().toUpperCase(),
       name: room.name.trim(),
-      leader_id: leaderId,
-      leader_name: leaderName,
       host_id: room.hostId,
       host_name: hostName,
-      approved: true,
-      approved_by_admin_id: approvedByAdminId,
-      approved_by_admin_name: approvedByAdminName,
-      admin_approval_message: adminApprovalMessage,
-      approved_at: approvedAt,
+      status: room.phase === 'waiting' ? 'waiting' : 'active',
+      approval_status: 'approved',
       is_private: room.isPrivate,
       betting_duration: room.settings.bettingDuration,
       player_count: playersArr.length,
-      status: room.phase === 'waiting' ? 'waiting' : 'active',
+      expires_at: expiresAt,
       player_stats: playerStats,
-      players: playerStats,
       history: compactHistory,
       table_stats: compactTableStats,
-      expires_at: expiresAt,
-      validity_hours: validityHours,
-      validity_days: validityDays,
-      approval_status: 'approved',
+      approval_meta: approvalMeta,
       updated_at: new Date().toISOString(),
     };
 
     let { error } = await sb.from('game_tables').upsert(payload, { onConflict: 'id' });
-    // Fallback if player_stats or players column has not yet been migrated
+    if (error && error.message?.toLowerCase().includes('approval_meta')) {
+      delete payload.approval_meta;
+      const retry = await sb.from('game_tables').upsert(payload, { onConflict: 'id' });
+      error = retry.error;
+    }
     if (error && (error.message?.toLowerCase().includes('player_stats') || (error as any).code === 'PGRST204')) {
       delete payload.player_stats;
-      const retry = await sb.from('game_tables').upsert(payload, { onConflict: 'id' });
-      error = retry.error;
-    }
-    if (error && error.message?.toLowerCase().includes('approved')) {
-      delete payload.approved;
-      const retry = await sb.from('game_tables').upsert(payload, { onConflict: 'id' });
-      error = retry.error;
-    }
-    if (error && error.message?.toLowerCase().includes('players')) {
-      delete payload.players;
       const retry = await sb.from('game_tables').upsert(payload, { onConflict: 'id' });
       error = retry.error;
     }
@@ -798,16 +799,35 @@ export async function updateUserAdminStatusInSupabase(
   if (!sb || !userId) return false;
 
   try {
-    const { error } = await sb
+    const { data: cur } = await sb
       .from('profiles')
-      .update({
-        is_admin: isAdmin,
-        updated_at: new Date().toISOString(),
-      })
+      .select('stats')
+      .eq('id', userId)
+      .maybeSingle();
+
+    const currentStats = typeof cur?.stats === 'object' && cur?.stats !== null ? { ...cur.stats } : {};
+    currentStats.isAdmin = isAdmin;
+    currentStats.is_admin = isAdmin;
+
+    const payload: Record<string, any> = {
+      is_admin: isAdmin,
+      stats: currentStats,
+      updated_at: new Date().toISOString(),
+    };
+
+    let { error } = await sb
+      .from('profiles')
+      .update(payload)
       .eq('id', userId);
 
+    if (error && (error.message?.toLowerCase().includes('is_admin') || (error as any).code === 'PGRST204')) {
+      delete payload.is_admin;
+      const retry = await sb.from('profiles').update(payload).eq('id', userId);
+      error = retry.error;
+    }
+
     if (error) {
-      console.warn('[Server Supabase] updateUserAdminStatusInSupabase error:', error.message);
+      console.warn('[Server Supabase] updateUserAdminStatusInSupabase notice:', error.message);
       return false;
     }
     return true;
@@ -842,8 +862,11 @@ export async function updateUserTableHostApproval(
 
     const currentStats = typeof cur?.stats === 'object' && cur?.stats !== null ? { ...cur.stats } : {};
     currentStats.canCreateTable = canCreate;
+    currentStats.can_create_table = canCreate;
     currentStats.tableValidityDays = validityDays;
+    currentStats.table_validity_days = validityDays;
     currentStats.tablePermissionExpiresAt = expiresAt;
+    currentStats.table_permission_expires_at = expiresAt;
 
     // Create celebratory notification if approved
     let updatedNotifications = Array.isArray(cur?.notifications) ? cur.notifications : [];
@@ -859,20 +882,36 @@ export async function updateUserTableHostApproval(
       updatedNotifications = [approvalNote, ...updatedNotifications].slice(0, 50);
     }
 
-    const { error } = await sb
+    const payload: Record<string, any> = {
+      can_create_table: canCreate,
+      table_permission_expires_at: expiresAt,
+      table_validity_days: validityDays,
+      stats: currentStats,
+      notifications: updatedNotifications,
+      updated_at: new Date().toISOString(),
+    };
+
+    let { error } = await sb
       .from('profiles')
-      .update({
-        can_create_table: canCreate,
-        table_permission_expires_at: expiresAt,
-        table_validity_days: validityDays,
-        stats: currentStats,
-        notifications: updatedNotifications,
-        updated_at: new Date().toISOString(),
-      })
+      .update(payload)
       .eq('id', userId);
 
+    if (error && (error.message?.toLowerCase().includes('can_create_table') || (error as any).code === 'PGRST204')) {
+      delete payload.can_create_table;
+      delete payload.table_permission_expires_at;
+      delete payload.table_validity_days;
+      const retry = await sb.from('profiles').update(payload).eq('id', userId);
+      error = retry.error;
+    }
+
+    if (error && (error.message?.toLowerCase().includes('notifications') || (error as any).code === 'PGRST204')) {
+      delete payload.notifications;
+      const retry = await sb.from('profiles').update(payload).eq('id', userId);
+      error = retry.error;
+    }
+
     if (error) {
-      console.warn('[Server Supabase] updateUserTableHostApproval error:', error.message);
+      console.warn('[Server Supabase] updateUserTableHostApproval notice:', error.message);
       return { success: false, message: error.message };
     }
 
@@ -940,10 +979,12 @@ export async function notifyAllAdminsInSupabase(
 }
 
 /**
- * Saves or updates a table creation request in Supabase table_requests table.
+ * Saves or updates a table creation request directly in game_tables.
  */
 export async function saveTableRequestToSupabase(request: {
   id: string;
+  tableId?: string;
+  roomCode?: string;
   userId: string;
   username: string;
   tableName: string;
@@ -954,29 +995,40 @@ export async function saveTableRequestToSupabase(request: {
   approvedByAdminId?: string;
   approvedByAdminName?: string;
   adminMessage?: string;
+  createdAt?: number | string;
 }): Promise<boolean> {
   const sb = getSupabaseServerClient();
   if (!sb) return false;
 
   try {
+    const tableId = request.tableId || request.id;
+    const isApproved = request.status === 'approved';
     const payload = {
-      id: request.id,
-      user_id: request.userId,
-      username: request.username,
-      table_name: request.tableName,
-      is_private: request.isPrivate,
+      id: tableId,
+      code: request.roomCode || Math.random().toString(36).substring(2, 8).toUpperCase(),
+      name: request.tableName,
+      host_id: request.userId,
+      host_name: request.username,
+      leader_id: request.userId,
+      leader_name: request.username,
+      approved: isApproved,
+      approval_status: isApproved ? 'approved' : request.status === 'declined' ? 'declined' : 'pending',
+      is_private: Boolean(request.isPrivate),
       betting_duration: request.bettingDuration,
+      player_count: 0,
+      status: isApproved ? 'waiting' : request.status === 'declined' ? 'closed' : 'pending_approval',
       validity_hours: request.validityHours,
-      status: request.status,
+      validity_days: Math.max(1, Math.ceil(request.validityHours / 24)),
+      expires_at: isApproved ? new Date(Date.now() + (request.validityHours || 24) * 3600 * 1000).toISOString() : null,
       approved_by_admin_id: request.approvedByAdminId,
       approved_by_admin_name: request.approvedByAdminName,
-      admin_message: request.adminMessage,
+      admin_approval_message: request.adminMessage,
       updated_at: new Date().toISOString(),
     };
 
-    const { error } = await sb.from('table_requests').upsert(payload, { onConflict: 'id' });
+    const { error } = await sb.from('game_tables').upsert(payload, { onConflict: 'id' });
     if (error) {
-      console.warn('[Server Supabase] saveTableRequestToSupabase notice:', error.message);
+      console.warn('[Server Supabase] saveTableRequestToSupabase (game_tables) notice:', error.message);
       return false;
     }
     return true;
@@ -987,7 +1039,7 @@ export async function saveTableRequestToSupabase(request: {
 }
 
 /**
- * Fetches all pending table creation requests from Supabase.
+ * Fetches all pending table creation requests directly from game_tables.
  */
 export async function fetchPendingTableRequestsFromSupabase(): Promise<any[]> {
   const sb = getSupabaseServerClient();
@@ -995,22 +1047,27 @@ export async function fetchPendingTableRequestsFromSupabase(): Promise<any[]> {
 
   try {
     const { data, error } = await sb
-      .from('table_requests')
+      .from('game_tables')
       .select('*')
-      .eq('status', 'pending')
+      .or('approved.eq.false,approval_status.eq.pending,status.eq.pending_approval')
+      .neq('status', 'closed')
+      .neq('approval_status', 'declined')
       .order('created_at', { ascending: false });
 
     if (!error && Array.isArray(data)) {
-      return data.map((r) => ({
-        id: r.id,
-        userId: r.user_id,
-        username: r.username,
-        tableName: r.table_name,
-        isPrivate: r.is_private,
-        bettingDuration: r.betting_duration,
-        validityHours: r.validity_hours,
-        status: r.status,
-        createdAt: new Date(r.created_at).getTime(),
+      return data.map((t) => ({
+        id: t.id,
+        tableId: t.id,
+        roomCode: t.code,
+        userId: t.host_id,
+        username: t.host_name || 'Player',
+        tableName: t.name,
+        isPrivate: Boolean(t.is_private),
+        bettingDuration: t.betting_duration || 20,
+        validityHours: t.validity_hours || 24,
+        status: t.approval_status || 'pending',
+        approved: Boolean(t.approved),
+        createdAt: t.created_at ? new Date(t.created_at).getTime() : Date.now(),
       }));
     }
   } catch (err) {

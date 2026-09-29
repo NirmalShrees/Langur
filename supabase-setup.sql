@@ -282,42 +282,8 @@ set leader_id = coalesce(leader_id, host_id),
     leader_name = coalesce(leader_name, host_name)
 where leader_id is null;
 
--- ============================================================================
--- TABLE: public.table_requests (Admin Table Approval Workflow)
--- ============================================================================
-create table if not exists public.table_requests (
-  id text primary key,
-  user_id text not null,
-  username text not null,
-  table_name text not null,
-  is_private boolean default false,
-  betting_duration int default 20,
-  validity_hours int default 24,
-  status text default 'pending', -- 'pending', 'approved', 'declined'
-  approved_by_admin_id text,
-  approved_by_admin_name text,
-  admin_message text,
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
-);
-
-alter table public.table_requests enable row level security;
-
-create policy "Allow all users to select table requests"
-  on public.table_requests for select
-  using (true);
-
-create policy "Allow all users to insert table requests"
-  on public.table_requests for insert
-  with check (true);
-
-create policy "Allow all users to update table requests"
-  on public.table_requests for update
-  using (true);
-
-create policy "Allow all users to delete table requests"
-  on public.table_requests for delete
-  using (true);
+-- Cleanup legacy standalone table_requests table (all requests are natively stored in public.game_tables)
+drop table if exists public.table_requests cascade;
 
 -- Migration: if old bloated 'players' column exists, consolidate into compact 'player_stats'
 do $$

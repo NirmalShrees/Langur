@@ -21,6 +21,12 @@ import {
   TrendingDown,
   ArrowRight,
   Sliders,
+  Info,
+  Copy,
+  Check,
+  Lock,
+  Globe,
+  Clock,
 } from 'lucide-react';
 import { UserProfile, SymbolType, LANGUR_BURJA_SYMBOLS, SYMBOL_KEYS } from '../../types.js';
 import { AppNotification } from '../../utils/notifications.js';
@@ -80,6 +86,7 @@ interface TableAdminData {
   isPrivate: boolean;
   phase: string;
   timer: number;
+  bettingDuration?: number;
   roundNumber: number;
   playerCount: number;
   realPlayerCount: number;
@@ -87,6 +94,11 @@ interface TableAdminData {
   expires_at?: string;
   validityDays?: number;
   validity_days?: number;
+  approvalStatus?: string;
+  approvalMeta?: any;
+  approvedByAdminName?: string;
+  adminApprovalMessage?: string;
+  createdAt?: string | number;
   players: {
     id: string;
     username: string;
@@ -100,6 +112,23 @@ interface TableAdminData {
   totalRoundBets: number;
   status?: string;
   inMemory?: boolean;
+}
+
+function formatTimeRemaining(expiresAt?: string, isPending?: boolean, validityHours?: number): string {
+  if (isPending || !expiresAt) {
+    const hrs = validityHours || 24;
+    return `Starts on approval (${hrs}h)`;
+  }
+  const diff = new Date(expiresAt).getTime() - Date.now();
+  if (diff <= 0) return 'Expired';
+  const hours = Math.floor(diff / (1000 * 60 * 60));
+  const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+  if (hours >= 24) {
+    const days = Math.floor(hours / 24);
+    const remHours = hours % 24;
+    return `${days}d ${remHours}h left`;
+  }
+  return `${hours}h ${mins}m left`;
 }
 
 export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
@@ -150,6 +179,10 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   const [airdropAmount, setAirdropAmount] = useState<string>('25000');
   const [airdropTarget, setAirdropTarget] = useState<'online' | 'all'>('online');
   const [airdropReason, setAirdropReason] = useState<string>('Festival Celebration Gift');
+
+  // Table Details Info Modal State
+  const [selectedTableDetails, setSelectedTableDetails] = useState<any | null>(null);
+  const [copiedDetailsCode, setCopiedDetailsCode] = useState<boolean>(false);
 
   // Fetch Table Requests
   const fetchTableRequestsData = useCallback(async () => {
@@ -1126,54 +1159,35 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                   tables.map((t) => (
                     <div
                       key={t.id}
-                      className="p-3 rounded-xl bg-slate-900/80 border border-amber-500/20 shadow space-y-2"
+                      className="p-3 rounded-xl bg-slate-900/80 border border-amber-500/20 shadow space-y-2.5"
                     >
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-mono font-black text-xs px-2 py-0.5 rounded bg-amber-500 text-slate-950">
-                            {t.code}
-                          </span>
-                          <span className="font-serif font-bold text-xs text-amber-200">
+                      {/* Header: Table Name on Left, "i" Info Button on Top Right */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="font-serif font-black text-xs sm:text-sm text-amber-200 truncate">
                             {t.name}
                           </span>
-                          <span className="text-[9.5px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 font-mono">
-                            Host: {t.hostName}
-                          </span>
                         </div>
 
-                        <div className="flex items-center gap-1.5 font-mono text-[10px]">
-                          <span className="px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 font-bold">
-                            {t.phase.toUpperCase()} ({t.timer}s)
-                          </span>
-                          <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
-                            👥 {t.realPlayerCount} real / {t.playerCount} total
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Betting Pool Distribution */}
-                      <div className="grid grid-cols-6 gap-1 pt-1 border-t border-slate-800/60">
-                        {SYMBOL_KEYS.map((sym) => {
-                          const config = LANGUR_BURJA_SYMBOLS[sym];
-                          const betOnSym = t.tableBets?.[sym] || 0;
-                          return (
-                            <div
-                              key={sym}
-                              className="p-1 rounded bg-slate-950/80 border border-slate-800/80 text-center"
-                            >
-                              <div className="text-xs">{config.symbolChar}</div>
-                              <div className={`text-[9px] font-mono ${betOnSym > 0 ? 'text-amber-300 font-bold' : 'text-slate-500'}`}>
-                                {betOnSym > 0 ? `${(betOnSym / 1000).toFixed(0)}k` : '0'}
-                              </div>
-                            </div>
-                          );
-                        })}
+                        {/* Top Right "i" Details Button */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            sound.playChipSound();
+                            setCopiedDetailsCode(false);
+                            setSelectedTableDetails(t);
+                          }}
+                          className="p-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/25 text-amber-300 hover:text-amber-200 border border-amber-500/30 transition-all cursor-pointer active:scale-95 shadow-sm flex items-center justify-center shrink-0"
+                          title="View table details (host, code, approval, expiry, stats)"
+                        >
+                          <Info className="w-3.5 h-3.5 text-amber-400" />
+                        </button>
                       </div>
 
                       {/* Action Buttons */}
                       <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-800/60">
                         <span className="text-[10px] font-mono text-slate-400">
-                          Total Pool: <strong className="text-amber-300">{t.totalRoundBets.toLocaleString()} 🪙</strong>
+                          Pool: <strong className="text-amber-300">{t.totalRoundBets.toLocaleString()} 🪙</strong>
                         </span>
 
                         <div className="flex items-center gap-1.5">
@@ -1854,7 +1868,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-slate-400">Requested Duration:</span>
-                  <span className="font-mono text-emerald-300 font-bold">{reviewingRequest.validityHours || 24} Hours</span>
+                  <span className="font-mono text-emerald-300 font-bold">{reviewingRequest.validityHours || 24} Hours <span className="text-[10px] text-amber-300 font-normal">(starts on approval)</span></span>
                 </div>
               </div>
 
@@ -1871,6 +1885,9 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                       ? '6 Hours'
                       : '24 Hours'}
                   </span>
+                </div>
+                <div className="text-[10px] text-emerald-400/90 font-mono">
+                  ⏱️ Table validity timer will begin immediately when you click Approve.
                 </div>
 
                 <div className="grid grid-cols-4 gap-1.5">
@@ -1952,6 +1969,152 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                 >
                   <CheckCircle2 className="w-4 h-4 fill-slate-950" />
                   <span>Approve & Send Message</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* 6. DEDICATED TABLE DETAILS INFO MODAL */}
+        {selectedTableDetails && (
+          <div
+            className="fixed inset-0 z-60 bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150"
+            onClick={() => setSelectedTableDetails(null)}
+          >
+            <div
+              className="w-full max-w-md rounded-2xl bg-gradient-to-b from-[#111c35] via-[#0c1427] to-[#060a14] border border-amber-500/50 p-4 sm:p-5 shadow-2xl text-slate-100 space-y-3.5 relative"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between pb-3 border-b border-slate-800/80">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300 font-bold shrink-0 shadow-sm">
+                    <Info className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="font-serif font-black text-sm sm:text-base text-amber-200 truncate">
+                      {selectedTableDetails.name}
+                    </h3>
+                    <p className="text-[10.5px] text-slate-400 font-mono">Table Inspection & Details</p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedTableDetails(null)}
+                  className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-all cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Details Grid */}
+              <div className="grid grid-cols-2 gap-2 text-xs font-sans">
+                {/* Table Code */}
+                <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800/80 space-y-1">
+                  <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Table Code</div>
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="font-mono font-black text-amber-300 tracking-wider">
+                      {selectedTableDetails.code}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        sound.playChipSound();
+                        navigator.clipboard.writeText(selectedTableDetails.code).then(() => {
+                          setCopiedDetailsCode(true);
+                          setTimeout(() => setCopiedDetailsCode(false), 2000);
+                        }).catch(() => {});
+                      }}
+                      className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[10px] flex items-center gap-1 cursor-pointer active:scale-95"
+                      title="Copy Code"
+                    >
+                      {copiedDetailsCode ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                      <span>{copiedDetailsCode ? 'Copied' : 'Copy'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Host Name */}
+                <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800/80 space-y-1">
+                  <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Host</div>
+                  <div className="font-semibold text-slate-200 truncate flex items-center gap-1">
+                    <Crown className="w-3 h-3 text-amber-400 shrink-0" />
+                    <span className="truncate">{selectedTableDetails.hostName || 'Host'}</span>
+                  </div>
+                </div>
+
+                {/* Approved By */}
+                <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800/80 space-y-1">
+                  <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Approved By</div>
+                  <div className="font-semibold text-emerald-300 truncate flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                    <span className="truncate">
+                      {selectedTableDetails.approvedByAdminName || selectedTableDetails.approvalMeta?.admin_name || 'System Admin'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Time Remaining */}
+                <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800/80 space-y-1">
+                  <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Time Remaining</div>
+                  <div className="font-mono font-bold text-amber-300 flex items-center gap-1">
+                    <Clock className="w-3 h-3 text-amber-400 shrink-0" />
+                    <span>
+                      {formatTimeRemaining(
+                        selectedTableDetails.expiresAt || selectedTableDetails.expires_at,
+                        selectedTableDetails.approvalStatus === 'pending' || selectedTableDetails.status === 'pending_approval' || selectedTableDetails.approved === false,
+                        selectedTableDetails.validity_hours || selectedTableDetails.validityHours
+                      )}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Access Privacy */}
+                <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800/80 space-y-1">
+                  <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Privacy & Access</div>
+                  <div className="font-medium text-slate-200 flex items-center gap-1">
+                    {selectedTableDetails.isPrivate ? (
+                      <>
+                        <Lock className="w-3 h-3 text-amber-400 shrink-0" />
+                        <span>Private (Friends)</span>
+                      </>
+                    ) : (
+                      <>
+                        <Globe className="w-3 h-3 text-blue-400 shrink-0" />
+                        <span>Public Open</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Players Count */}
+                <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800/80 space-y-1">
+                  <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Player Count</div>
+                  <div className="font-mono text-slate-200 flex items-center gap-1">
+                    <Users className="w-3 h-3 text-purple-400 shrink-0" />
+                    <span>{selectedTableDetails.realPlayerCount || 0} real / {selectedTableDetails.playerCount || 0} total</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Admin Note if present */}
+              {(selectedTableDetails.adminApprovalMessage || selectedTableDetails.approvalMeta?.message) && (
+                <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs">
+                  <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider block mb-0.5">Admin Message Note:</span>
+                  <p className="text-amber-100/90 italic font-sans">
+                    "{selectedTableDetails.adminApprovalMessage || selectedTableDetails.approvalMeta?.message}"
+                  </p>
+                </div>
+              )}
+
+              {/* Close Button */}
+              <div className="flex items-center justify-end pt-1">
+                <button
+                  type="button"
+                  onClick={() => setSelectedTableDetails(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold cursor-pointer active:scale-95 transition-all"
+                >
+                  Close
                 </button>
               </div>
             </div>

@@ -24,26 +24,16 @@ export interface GameTableRecord {
   id: string;
   code: string;
   name: string;
-  leader_id?: string;
-  leader_name?: string;
   host_id: string;
   host_name: string;
-  approved?: boolean;
+  status: 'waiting' | 'active' | 'closed' | 'pending_approval';
   approval_status?: 'pending' | 'approved' | 'declined';
-  approved_by_admin_id?: string;
-  approved_by_admin_name?: string;
-  admin_approval_message?: string;
-  approved_at?: string;
   is_private: boolean;
   betting_duration: number;
   player_count: number;
-  status: 'waiting' | 'active' | 'closed' | 'pending_approval';
-  player_stats?: any[];
-  players?: TablePlayerRecord[];
-  history?: any[];
   expires_at?: string;
-  validity_hours?: number;
-  validity_days?: number;
+  player_stats?: any[];
+  history?: any[];
   table_stats?: {
     totalRounds: number;
     totalBets: number;
@@ -51,8 +41,26 @@ export interface GameTableRecord {
     highestRoundPool?: number;
     biggestWinner?: { username: string; amount: number; roundNumber: number };
   };
+  approval_meta?: {
+    admin_id?: string;
+    admin_name?: string;
+    message?: string;
+    approved_at?: string;
+  };
   created_at?: string;
   updated_at?: string;
+
+  // Legacy fallback fields (optional for backward compatibility)
+  leader_id?: string;
+  leader_name?: string;
+  approved?: boolean;
+  approved_by_admin_id?: string;
+  approved_by_admin_name?: string;
+  admin_approval_message?: string;
+  approved_at?: string;
+  players?: TablePlayerRecord[];
+  validity_hours?: number;
+  validity_days?: number;
 }
 
 /**
@@ -121,37 +129,35 @@ export async function recordTableInSupabase(table: {
 
     const approvalStatus = (table as any).approval_status || (table as any).approvalStatus || (isTableApproved ? 'approved' : 'pending');
 
+    const approvalMeta = {
+      admin_id: table.approvedByAdminId || (table as any).approval_meta?.admin_id,
+      admin_name: table.approvedByAdminName || (table as any).approval_meta?.admin_name,
+      message: table.adminApprovalMessage || (table as any).approval_meta?.message,
+      approved_at: table.approvedAt || (table as any).approval_meta?.approved_at || (isTableApproved ? new Date().toISOString() : undefined),
+    };
+
     const payload: Record<string, any> = {
       id: table.id,
       code: table.code.trim().toUpperCase(),
       name: table.name.trim(),
-      leader_id: table.leaderId || table.hostId,
-      leader_name: table.leaderName || table.hostName,
       host_id: table.hostId,
       host_name: table.hostName,
-      approved: isTableApproved,
+      status: table.status || (isTableApproved ? 'waiting' : 'pending_approval'),
       approval_status: approvalStatus,
-      approved_by_admin_id: table.approvedByAdminId,
-      approved_by_admin_name: table.approvedByAdminName,
-      admin_approval_message: table.adminApprovalMessage,
-      approved_at: table.approvedAt || (isTableApproved ? new Date().toISOString() : undefined),
       is_private: table.isPrivate,
       betting_duration: table.bettingDuration,
       player_count: table.playerCount || 0,
-      status: table.status || (isTableApproved ? 'waiting' : 'pending_approval'),
-      players: compactPlayers,
+      expires_at: expiresAt,
       player_stats: playerStats,
       history: [],
       table_stats: { totalRounds: 0, totalBets: 0, totalPayouts: 0 },
-      expires_at: expiresAt,
-      validity_hours: validityHours,
-      validity_days: validityDays,
+      approval_meta: approvalMeta,
       updated_at: new Date().toISOString(),
     };
 
     let { error } = await supabase.from('game_tables').upsert(payload, { onConflict: 'id' });
-    if (error && (error.message?.toLowerCase().includes('player_stats') || error.code === 'PGRST204')) {
-      delete payload.player_stats;
+    if (error && error.message?.toLowerCase().includes('approval_meta')) {
+      delete payload.approval_meta;
       const retry = await supabase.from('game_tables').upsert(payload, { onConflict: 'id' });
       error = retry.error;
     }
@@ -315,12 +321,12 @@ export async function syncTableStateToSupabase(room: RoomState): Promise<{ succe
       name: room.name.trim(),
       host_id: room.hostId,
       host_name: room.players[room.hostId]?.username || 'Host',
+      status: room.phase === 'waiting' ? 'waiting' : 'active',
+      approval_status: 'approved',
       is_private: room.isPrivate,
       betting_duration: room.settings.bettingDuration,
       player_count: playersList.length,
-      status: room.phase === 'waiting' ? 'waiting' : 'active',
       player_stats: playerStats,
-      players: playerStats,
       history: compactHistory,
       table_stats: compactTableStats,
       updated_at: new Date().toISOString(),
@@ -329,10 +335,6 @@ export async function syncTableStateToSupabase(room: RoomState): Promise<{ succe
     let { error } = await supabase.from('game_tables').upsert(payload, { onConflict: 'id' });
     if (error && (error.message?.toLowerCase().includes('player_stats') || error.code === 'PGRST204')) {
       delete payload.player_stats;
-      const retry = await supabase.from('game_tables').upsert(payload, { onConflict: 'id' });
-      error = retry.error;
-    } else if (error && error.message?.toLowerCase().includes('players')) {
-      delete payload.players;
       const retry = await supabase.from('game_tables').upsert(payload, { onConflict: 'id' });
       error = retry.error;
     }
@@ -715,7 +717,7 @@ export async function requestTableCreationApproval(params: {
   isPrivate?: boolean;
   bettingDuration?: number;
   validityHours?: number;
-}): Promise<{ success: boolean; message?: string; request?: any }> {
+}): Promise<{ success: boolean; message?: string; request?: any; table?: any }> {
   try {
     const res = await fetch('/api/tables/request-approval', {
       method: 'POST',
@@ -723,7 +725,7 @@ export async function requestTableCreationApproval(params: {
       body: JSON.stringify(params),
     });
     const data = await res.json();
-    return { success: data.success ?? true, message: data.message, request: data.request };
+    return { success: data.success ?? true, message: data.message, request: data.request, table: data.table };
   } catch (err: any) {
     return { success: true, message: 'Request sent to Administrator!' };
   }

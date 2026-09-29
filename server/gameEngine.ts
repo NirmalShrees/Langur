@@ -157,7 +157,15 @@ export class GameEngine {
   /**
    * Instantiates a RoomState object from a Supabase record and boots its game loop.
    */
-  public instantiateRoomFromRecord(record: SupabaseTableRecord): RoomState {
+  public instantiateRoomFromRecord(record: SupabaseTableRecord | any): RoomState | null {
+    if (!record || !record.id) return null;
+
+    // Strict Table Approval Check: Never instantiate unapproved or pending tables
+    if (record.approved === false || record.approval_status === 'pending' || record.status === 'pending_approval' || record.approval_status === 'declined') {
+      console.log(`[GameEngine] Refusing to instantiate unapproved/pending table ${record.name || record.id} (${record.code})`);
+      return null;
+    }
+
     const existing = this.rooms.get(record.id);
     if (existing) {
       this.cancelRoomCleanup(existing.id);
