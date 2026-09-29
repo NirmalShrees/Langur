@@ -728,7 +728,7 @@ async function startServer() {
 
       const isApproved = decision === 'approve';
       const cleanAdminName = adminName || 'Admin';
-      const cleanAdminMsg = adminMessage?.trim() || (isApproved ? 'Approved! Enjoy your table!' : 'Request was declined.');
+      const cleanAdminMsg = adminMessage?.trim() || '';
       const effectiveHours = Math.max(1, parseInt(validityHours, 10) || reqItem.validityHours || 24);
 
       reqItem.status = isApproved ? 'approved' : 'declined';
@@ -848,8 +848,12 @@ async function startServer() {
         id: `note_decision_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         title: isApproved ? '👑 Table Request Approved!' : 'Table Request Declined',
         message: isApproved
-          ? `Your request to create table "${reqItem.tableName}" for ${effectiveHours} hours was approved by Admin ${cleanAdminName}: "${cleanAdminMsg}"`
-          : `Your request to create table "${reqItem.tableName}" was declined by Admin ${cleanAdminName}: "${cleanAdminMsg}"`,
+          ? (cleanAdminMsg
+              ? `Your request to create table "${reqItem.tableName}" (${effectiveHours} hours) was approved by Admin ${cleanAdminName}: "${cleanAdminMsg}"`
+              : `Your request to create table "${reqItem.tableName}" for ${effectiveHours} hours was approved by Admin ${cleanAdminName}.`)
+          : (cleanAdminMsg
+              ? `Your request to create table "${reqItem.tableName}" was declined by Admin ${cleanAdminName}: "${cleanAdminMsg}"`
+              : `Your request to create table "${reqItem.tableName}" was declined by Admin ${cleanAdminName}.`),
         type: isApproved ? 'reward' : 'system',
         timestamp: Date.now(),
         state: 'not seen',
@@ -944,13 +948,16 @@ async function startServer() {
             username: p.username,
             avatar: p.avatar,
             coins: p.coins,
-            currentBet: p.totalBetThisRound,
+            currentBet: p.totalBetThisRound || 0,
+            bets: p.bets || {},
             isHost: p.isHost,
             isBot: p.id.startsWith('patron_') || p.id.startsWith('bot_'),
           })),
-          tableBets: r.tableBets,
+          tableBets: r.tableBets || {},
           totalRoundBets: Object.values(r.tableBets || {}).reduce((a: number, b: any) => a + Number(b || 0), 0),
+          avar: (r as any).avar ?? (r as any).settings?.avar ?? 50,
           lastResult: r.lastResult,
+          history: (r as any).history || [],
           inMemory: true,
           status: r.phase === 'waiting' ? 'waiting' : 'active',
           approvalStatus: (r as any).approval_status || 'approved',
@@ -1011,6 +1018,7 @@ async function startServer() {
                   })),
                   tableBets: { jhanda: 0, burja: 0, itta: 0, paan: 0, hukum: 0, chidi: 0 },
                   totalRoundBets: 0,
+                  avar: dt.avar ?? dt.settings?.avar ?? 50,
                   inMemory: false,
                   status: dt.status || 'waiting',
                   approvalStatus: dt.approval_status || (dt.approved ? 'approved' : 'pending'),
@@ -1114,6 +1122,30 @@ async function startServer() {
       res.json({ success: true, message: `Table row ${roomId} deleted successfully.` });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || 'Failed deleting table row' });
+    }
+  });
+
+  // 5b. Update Table A-VAR (Adaptive Volatility & Aggregate Return) Algorithm Setting
+  app.post('/api/admin/tables/:id/avar', async (req, res) => {
+    try {
+      const roomId = req.params.id;
+      const { avar } = req.body;
+      const numAvar = Number(avar);
+      const sanitized = Math.max(0, Math.min(100, Math.round(Number.isFinite(numAvar) ? numAvar : 50)));
+
+      const result = gameEngine.setTableAvar(roomId, sanitized);
+
+      // Broadcast update to all admins and sockets in real time
+      io.emit('admin:table_avar_updated', { roomId, avar: sanitized });
+
+      res.json({
+        success: true,
+        roomId,
+        avar: sanitized,
+        message: result.message,
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed updating table A-VAR' });
     }
   });
 
@@ -1618,6 +1650,15 @@ async function startServer() {
     // Player votes for Next Round during results phase
     socket.on('game:vote_next_round', (payload: { roomId: string; userId: string }, callback) => {
       const result = gameEngine.voteNextRound(payload.roomId, payload.userId);
+      if (typeof callback === 'function') {
+        callback(result);
+      }
+    });
+
+    // Admin Real-Time A-VAR Algorithm Adjustment
+    socket.on('admin:set_table_avar', (payload: { roomId: string; avar: number }, callback) => {
+      const result = gameEngine.setTableAvar(payload.roomId, payload.avar);
+      io.emit('admin:table_avar_updated', { roomId: payload.roomId, avar: result.avar });
       if (typeof callback === 'function') {
         callback(result);
       }

@@ -327,17 +327,13 @@ const MobileBettingMatComponent: React.FC<MobileBettingMatProps> = ({
                         </div>
 
                         {/* Summary Totals */}
-                        <div className="mt-1.5 pt-1 border-t border-amber-500/20 flex flex-col gap-0.5 text-[9px] font-sans">
-                          <div className="flex items-center justify-between text-slate-400">
-                            <span>Stake: <span className="font-mono text-slate-300">{totalUserBet.toLocaleString()} 🪙</span></span>
-                            <span>Return: <span className="font-mono text-emerald-400">{playerWonAmount > 0 ? `+${playerWonAmount.toLocaleString()} 🪙` : '0 🪙'}</span></span>
-                          </div>
-                          <div className="flex items-center justify-between font-bold pt-0.5 border-t border-slate-800/60">
+                        <div className="mt-1.5 pt-1.5 border-t border-amber-500/20 flex flex-col gap-0.5 text-[9px] font-sans">
+                          <div className="flex items-center justify-between font-bold">
                             <span className="text-amber-200">Net Profit / Loss:</span>
                             {(() => {
                               const net = playerWonAmount - totalUserBet;
                               return (
-                                <span className={`font-mono text-[10px] ${
+                                <span className={`font-mono text-[10.5px] ${
                                   net > 0
                                     ? 'text-emerald-400'
                                     : net < 0

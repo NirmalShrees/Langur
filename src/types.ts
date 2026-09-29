@@ -199,6 +199,7 @@ export interface RoomSettings {
   payoutDuration: number;  // seconds (default 6)
   autoLoop: boolean;
   payoutMultiplierType: 'traditional' | 'generous'; // traditional: 0 or 1 dice = loss, 2+ = bet returned + count*bet
+  avar?: number; // Adaptive Volatility & Aggregate Return (0, 25, 50, 75, 100)
 }
 
 export interface RoundResultSummary {
@@ -266,6 +267,7 @@ export interface RoomState {
   roundNumber: number;
   players: Record<string, PlayerInRoom>;
   tableBets: Record<SymbolType, number>;
+  avar?: number; // Adaptive Volatility & Aggregate Return (default: 50)
   lastResult?: RoundResultSummary;
   nextRoundVotes?: string[]; // Array of player user IDs who clicked "Next Round"
   activeBotIds?: string[]; // Array of active bot IDs at this table

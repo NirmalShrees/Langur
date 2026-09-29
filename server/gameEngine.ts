@@ -11,6 +11,7 @@ import {
   FloatingReaction,
 } from '../src/types.js';
 import { db } from './db.js';
+import { calculateAvarDiceRoll } from './avarEngine.js';
 import {
   fetchTableFromSupabaseByCode,
   fetchTableFromSupabaseById,
@@ -113,6 +114,7 @@ export class GameEngine {
       players: {},
       activeBotIds: ['patron_aarav', 'patron_sita', 'patron_dipen', 'patron_maya', 'patron_rohan'],
       tableBets: { jhanda: 0, burja: 0, itta: 0, paan: 0, hukum: 0, chidi: 0 },
+      avar: 50,
       recentHistory: [],
       history: [],
       tableStats: {
@@ -319,6 +321,7 @@ export class GameEngine {
       roundNumber: (record.table_stats?.totalRounds || 0) + 1,
       players: restoredPlayers,
       tableBets: { jhanda: 0, burja: 0, itta: 0, paan: 0, hukum: 0, chidi: 0 },
+      avar: (record as any).avar ?? 50,
       recentHistory: [],
       history: record.history || [],
       tableStats: record.table_stats || {
@@ -479,6 +482,7 @@ export class GameEngine {
       players: {},
       activeBotIds: isPrivate ? [] : ['patron_aarav', 'patron_sita', 'patron_dipen', 'patron_maya', 'patron_rohan'],
       tableBets: { jhanda: 0, burja: 0, itta: 0, paan: 0, hukum: 0, chidi: 0 },
+      avar: 50,
       recentHistory: [],
       history: [],
       tableStats: {
@@ -1191,11 +1195,31 @@ export class GameEngine {
   }
 
   /**
-   * Transition to Rolling Phase
+   * Set A-VAR (Adaptive Volatility & Aggregate Return) for a specific table
+   */
+  public setTableAvar(roomId: string, avarValue: number): { success: boolean; avar: number; message: string } {
+    const sanitizedVal = Math.max(0, Math.min(100, Math.round(Number(avarValue) || 0)));
+    const room = this.rooms.get(roomId);
+    if (room) {
+      room.avar = sanitizedVal;
+      if (room.settings) {
+        room.settings.avar = sanitizedVal;
+      }
+      this.io.to(`room:${roomId}`).emit('room:avar_updated', { roomId, avar: sanitizedVal });
+      console.log(`[A-VAR Engine] Room ${roomId} (${room.name}) A-VAR updated to ${sanitizedVal}% by Admin.`);
+    }
+    return { success: true, avar: sanitizedVal, message: `Table A-VAR set to ${sanitizedVal}%` };
+  }
+
+  /**
+   * Transition to Rolling Phase with A-VAR Probabilistic Engine
    */
   private executeRoll(room: RoomState) {
     room.phase = 'rolling';
-    const rolledDice = this.generateSecureDice();
+    const effectiveAvar = room.avar ?? room.settings?.avar ?? 50;
+    const rolledDice = calculateAvarDiceRoll(room, {
+      aggressiveness: effectiveAvar,
+    });
     room.dice = rolledDice;
     room.timer = 4; // 3.8 - 4 seconds rolling animation
     room.phaseEndsAt = Date.now() + 3800;
@@ -1204,6 +1228,7 @@ export class GameEngine {
       dice: rolledDice,
       duration: 3800,
       roundNumber: room.roundNumber,
+      avar: effectiveAvar,
     });
 
     // Schedule payout transition after suspenseful 3.8s roll animation
