@@ -1560,7 +1560,9 @@ export default function App() {
         localStorage.setItem('langur_burja_authenticated', 'true');
         localStorage.setItem('langur_burja_welcomed', 'true');
         setIsAuthModalOpen(false);
-        showToast('Playing as Guest! Welcome to the game.', 'success');
+        setIsFirstTimeUser(true);
+        setIsProfileOpen(true);
+        showToast('Welcome to Langur Burja! Set up your player name & avatar.', 'info');
         if (socket && isConnected) {
           socket.emit('user:init', { id: authedUser.id });
         }

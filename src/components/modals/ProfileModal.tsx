@@ -355,7 +355,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
               <div>
                 <div className="font-bold text-amber-100">Welcome to Langur Burja!</div>
                 <div className="text-[11px] text-slate-300 mt-0.5">
-                  Your account is connected. Choose your preferred avatar, name, and festival title below.
+                  Set up your player details below. You can choose your custom name, festival avatar, and title.
                 </div>
               </div>
             </div>
