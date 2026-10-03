@@ -49,6 +49,8 @@ class VoiceService {
   public audioContext: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private micSource: MediaStreamAudioSourceNode | null = null;
+  private pcmSourceNode: MediaStreamAudioSourceNode | null = null;
+  private pcmSilentGain: GainNode | null = null;
   private processorNode: ScriptProcessorNode | null = null;
   private animationFrameId: number | null = null;
 
@@ -446,8 +448,9 @@ class VoiceService {
 
   /**
    * Initializes local microphone stream and VAD analyzer (called when user unmutes)
+   * @param forceUnmute If true, immediately activates audio transmission without needing a second toggle.
    */
-  public async initMicrophone(): Promise<boolean> {
+  public async initMicrophone(forceUnmute = true): Promise<boolean> {
     try {
       if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
         this.state.error = 'Microphone API not supported on this browser';
@@ -455,9 +458,18 @@ class VoiceService {
         return false;
       }
 
+      // 1. Ensure and resume AudioContext immediately inside user-initiated action
       this.ensureAudioContext();
       if (this.audioContext && this.audioContext.state === 'suspended') {
         await this.audioContext.resume().catch(() => {});
+      }
+
+      // 2. Clean up previous streams and audio processing graph
+      this.stopPcmAudioStreaming();
+      this.stopVAD();
+      if (this.localStream) {
+        this.localStream.getTracks().forEach((track) => track.stop());
+        this.localStream = null;
       }
 
       let stream: MediaStream | null = null;
@@ -513,6 +525,12 @@ class VoiceService {
 
       this.localStream = stream;
 
+      // 3. Set track enablement based on forceUnmute
+      if (forceUnmute) {
+        this.state.isMuted = false;
+        this.state.error = null;
+      }
+
       // Detect active hardware deviceId
       const activeTrack = stream.getAudioTracks()[0];
       if (activeTrack) {
@@ -521,7 +539,7 @@ class VoiceService {
         this.loadInputDevices().catch(() => {});
       }
 
-      // Update tracks on all active peer connections and trigger renegotiation
+      // 4. Update tracks on all active peer connections and trigger renegotiation
       if (activeTrack) {
         this.peerConnections.forEach(async (pc, peerSid) => {
           try {
@@ -539,9 +557,23 @@ class VoiceService {
         });
       }
 
-      // Start Voice Activity Detection and PCM Audio Streaming
-      this.startVAD(stream);
-      this.startPcmAudioStreaming(stream);
+      // 5. Start Voice Activity Detection and PCM Audio Streaming if unmuted
+      if (!this.state.isMuted) {
+        this.startVAD(stream);
+        this.startPcmAudioStreaming(stream);
+      }
+
+      // 6. Broadcast updated mute state to the room
+      if (this.socket && this.roomId && this.currentUser) {
+        this.socket.emit('voice:mute_state', {
+          roomId: this.roomId,
+          userId: this.currentUser.id,
+          isMuted: this.state.isMuted,
+          isDeafened: this.state.isDeafened,
+        });
+      }
+
+      this.notify();
       return true;
     } catch (err: any) {
       console.warn('[VoiceService] Microphone access note:', err?.message || err);
@@ -703,11 +735,13 @@ class VoiceService {
   private startPcmAudioStreaming(stream: MediaStream) {
     try {
       this.ensureAudioContext();
-      if (!this.audioContext) return;
+      if (!this.audioContext || this.state.isMuted) return;
 
       this.stopPcmAudioStreaming();
 
       const source = this.audioContext.createMediaStreamSource(stream);
+      this.pcmSourceNode = source;
+
       // 2048 buffer size = responsive transmission (~40ms - 120ms per slice depending on sampleRate)
       const processor = this.audioContext.createScriptProcessor(2048, 1, 1);
       this.processorNode = processor;
@@ -723,8 +757,8 @@ class VoiceService {
         }
         const rms = Math.sqrt(sumSquares / inputBuffer.length);
 
-        // Transmit audio as long as there is any signal above absolute silence (rms > 0.001)
-        if (rms < 0.001) return;
+        // Transmit audio as long as there is any signal above absolute silence (rms > 0.0008)
+        if (rms < 0.0008) return;
 
         // Convert Float32Array (-1.0 to 1.0) to Int16 PCM array
         const pcm16 = new Int16Array(inputBuffer.length);
@@ -757,6 +791,7 @@ class VoiceService {
       // Connect to a silent dummy destination so onaudioprocess fires continuously
       const silentGain = this.audioContext.createGain();
       silentGain.gain.value = 0;
+      this.pcmSilentGain = silentGain;
       processor.connect(silentGain);
       silentGain.connect(this.audioContext.destination);
     } catch (err) {
@@ -770,6 +805,18 @@ class VoiceService {
         this.processorNode.disconnect();
       } catch {}
       this.processorNode = null;
+    }
+    if (this.pcmSourceNode) {
+      try {
+        this.pcmSourceNode.disconnect();
+      } catch {}
+      this.pcmSourceNode = null;
+    }
+    if (this.pcmSilentGain) {
+      try {
+        this.pcmSilentGain.disconnect();
+      } catch {}
+      this.pcmSilentGain = null;
     }
   }
 
@@ -1033,8 +1080,7 @@ class VoiceService {
   // --- Public Controls ---
 
   /**
-   * Toggles microphone mute state.
-   * If unmuting for the first time, prompts for microphone access.
+   * Toggles microphone mute state with immediate responsive audio engagement.
    */
   public async toggleMute(): Promise<boolean> {
     const wantUnmute = this.state.isMuted;
@@ -1051,7 +1097,7 @@ class VoiceService {
         this.localStream.getAudioTracks().some((t) => t.readyState === 'live');
 
       if (!isStreamActive) {
-        const ok = await this.initMicrophone();
+        const ok = await this.initMicrophone(true);
         if (!ok) {
           this.state.isMuted = true;
           this.state.error = 'Microphone permission needed to speak';
@@ -1059,9 +1105,28 @@ class VoiceService {
           return true;
         }
       } else if (this.localStream) {
+        this.state.isMuted = false;
+        this.state.error = null;
         this.localStream.getAudioTracks().forEach((t) => {
           t.enabled = true;
         });
+
+        const activeTrack = this.localStream.getAudioTracks()[0];
+        if (activeTrack) {
+          this.peerConnections.forEach(async (pc, peerSid) => {
+            try {
+              const senders = pc.getSenders();
+              const audioSender = senders.find((s) => !s.track || s.track.kind === 'audio');
+              if (audioSender) {
+                await audioSender.replaceTrack(activeTrack).catch(() => {});
+              }
+              this.renegotiatePeer(peerSid, pc);
+            } catch (e) {
+              console.warn('[VoiceService] Peer track re-attach notice:', e);
+            }
+          });
+        }
+
         this.startVAD(this.localStream);
         this.startPcmAudioStreaming(this.localStream);
       }
@@ -1149,12 +1214,7 @@ class VoiceService {
     this.state.selectedDeviceId = deviceId;
     this.notify();
     if (this.state.isConnected && !this.state.isMuted) {
-      if (this.localStream) {
-        this.localStream.getTracks().forEach((t) => t.stop());
-      }
-      this.stopPcmAudioStreaming();
-      this.stopVAD();
-      await this.initMicrophone();
+      await this.initMicrophone(true);
     }
   }
 
