@@ -91,14 +91,6 @@ export function getStoredNotifications(): AppNotification[] {
           read: false,
           state: 'not seen',
         },
-        {
-          id: 'welcome_note_2',
-          title: '🪙 Welcome Bonus',
-          message: '5,000 festival coins have been credited to your treasury.',
-          type: 'reward',
-          timestamp: Date.now() - 3600000,
-          read: true,
-        },
       ];
       localStorage.setItem(STORAGE_KEY, JSON.stringify(toSupabaseNotificationsJsonb(defaults)));
       return defaults;

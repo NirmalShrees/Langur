@@ -240,7 +240,7 @@ async function startServer() {
           username: p.username || existing.username || 'Festival Player',
           avatar: p.avatar || existing.avatar || '🎲',
           email: p.email || existing.email,
-          coins: typeof p.coins === 'number' ? p.coins : (existing.coins || 5000),
+          coins: typeof p.coins === 'number' ? p.coins : (existing.coins || 0),
           gamesPlayed: p.games_played ?? stats.gamesPlayed ?? existing.gamesPlayed ?? 0,
           gamesWon: p.games_won ?? stats.gamesWon ?? existing.gamesWon ?? 0,
           winRate: (p.games_played ?? stats.gamesPlayed ?? existing.gamesPlayed ?? 0) > 0
@@ -478,14 +478,14 @@ async function startServer() {
             currentCoins = remoteData.coins;
           }
           if (remoteData) {
-            db.getOrCreateUser(targetUserId, remoteData.username, remoteData.avatar, currentCoins ?? 5000);
+            db.getOrCreateUser(targetUserId, remoteData.username, remoteData.avatar, currentCoins ?? 0);
           }
         }
       }
 
       if (currentCoins === null) {
-        currentCoins = 5000;
-        db.getOrCreateUser(targetUserId, undefined, undefined, 5000);
+        currentCoins = 0;
+        db.getOrCreateUser(targetUserId, undefined, undefined, 0);
       }
 
       let newBalance = 0;
@@ -1281,7 +1281,7 @@ async function startServer() {
         ]);
 
         for (const userId of allUserIds) {
-          const user = db.getUser(userId) || { coins: 5000 };
+          const user = db.getUser(userId) || { coins: 0 };
           const resAdj = db.adminAdjustCoins(userId, coinAmount, adminId, reason);
           const receipt = {
             ...receiptTemplate,

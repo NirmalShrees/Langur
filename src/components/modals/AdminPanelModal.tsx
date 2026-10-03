@@ -872,7 +872,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
         username: currentUser.username || 'You (Admin)',
         avatar: currentUser.avatar || '🎲',
         email: currentUser.email,
-        coins: typeof currentUser.coins === 'number' ? currentUser.coins : 5000,
+        coins: typeof currentUser.coins === 'number' ? currentUser.coins : 0,
         gamesPlayed: currentUser.gamesPlayed || 0,
         gamesWon: currentUser.gamesWon || 0,
         winRate: (currentUser.gamesPlayed || 0) > 0 ? Math.round(((currentUser.gamesWon || 0) / (currentUser.gamesPlayed || 1)) * 100) : 0,

@@ -30,15 +30,7 @@ export function getCoinReceipts(userId?: string): CoinReceipt[] {
     console.warn('Failed to load coin receipts:', e);
   }
 
-  // Initial starter grant record if empty
-  const defaultReceipt: CoinReceipt = {
-    id: `rec_init_${Date.now()}`,
-    amount: 5000,
-    description: 'Festival Welcome Treasury',
-    timestamp: Date.now() - 60000,
-  };
-  saveCoinReceipts(userId, [defaultReceipt]);
-  return [defaultReceipt];
+  return [];
 }
 
 /**

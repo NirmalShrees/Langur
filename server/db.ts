@@ -293,7 +293,7 @@ class FastDatabase {
         id,
         username: username || `Player_${Math.floor(1000 + Math.random() * 9000)}`,
         avatar: avatar || '🎲',
-        coins: typeof initialCoins === 'number' && initialCoins >= 0 ? initialCoins : 5000,
+        coins: typeof initialCoins === 'number' && initialCoins >= 0 ? initialCoins : 0,
         totalWinnings: 0,
         gamesPlayed: 0,
         gamesWon: 0,
@@ -538,10 +538,10 @@ class FastDatabase {
   ): { success: boolean; user?: UserProfile; delta: number; oldBalance: number } {
     let u = this.users.get(userId);
     if (!u) {
-      u = this.getOrCreateUser(userId, undefined, undefined, 5000);
+      u = this.getOrCreateUser(userId, undefined, undefined, 0);
     }
 
-    const oldBalance = typeof u.coins === 'number' ? u.coins : 5000;
+    const oldBalance = typeof u.coins === 'number' ? u.coins : 0;
     const finalBalance = Math.max(0, Math.floor(newBalance));
     const delta = finalBalance - oldBalance;
     u.coins = finalBalance;
@@ -568,10 +568,10 @@ class FastDatabase {
   ): { success: boolean; user?: UserProfile; delta: number; newBalance: number; oldBalance: number } {
     let u = this.users.get(userId);
     if (!u) {
-      u = this.getOrCreateUser(userId, undefined, undefined, 5000);
+      u = this.getOrCreateUser(userId, undefined, undefined, 0);
     }
 
-    const oldBalance = typeof u.coins === 'number' ? u.coins : 5000;
+    const oldBalance = typeof u.coins === 'number' ? u.coins : 0;
     const newBalance = Math.max(0, Math.floor(oldBalance + amountDelta));
     const delta = newBalance - oldBalance;
     u.coins = newBalance;
