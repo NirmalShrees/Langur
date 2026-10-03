@@ -410,6 +410,10 @@ export default function App() {
       if (googleName) localStorage.setItem('langur_burja_google_name', googleName);
       if (googleAvatar) localStorage.setItem('langur_burja_google_avatar', googleAvatar);
 
+      const finalCoins = typeof remote?.coins === 'number'
+        ? remote.coins
+        : (isAlreadyRegistered && current && !current.isGuest && typeof current.coins === 'number' ? current.coins : 0);
+
       const linkedUser: UserProfile = {
         ...(remote || current),
         id: sessionUser.id,
@@ -418,6 +422,7 @@ export default function App() {
         avatar: remote?.avatar || googleAvatar,
         googleName,
         googleAvatar,
+        coins: finalCoins,
         isGuest: false,
         authProvider: (sessionUser.app_metadata?.provider as any) || 'google',
         profileConfigured: isAlreadyRegistered ? true : false,
@@ -1568,6 +1573,10 @@ export default function App() {
         localStorage.getItem(`langur_burja_account_created_${authedUser.id}`) === 'true' ||
         localStorage.getItem('langur_burja_google_configured') === 'true';
 
+      const finalCoins = typeof remote?.coins === 'number'
+        ? remote.coins
+        : (isAlreadyRegistered && authedUser && !authedUser.isGuest && typeof authedUser.coins === 'number' ? authedUser.coins : 0);
+
       const finalUser: UserProfile = {
         ...(remote || authedUser),
         id: authedUser.id,
@@ -1576,6 +1585,7 @@ export default function App() {
         avatar: remote?.avatar || authedUser.avatar,
         googleName: authedUser.googleName || remote?.googleName,
         googleAvatar: authedUser.googleAvatar || remote?.googleAvatar,
+        coins: finalCoins,
         isGuest: false,
         authProvider: authedUser.authProvider || remote?.authProvider || 'google',
         profileConfigured: isAlreadyRegistered ? true : false,

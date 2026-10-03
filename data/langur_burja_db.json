@@ -92,7 +92,7 @@
       "id": "guest_mul7jqfg_n81f9",
       "username": "Player_8124",
       "avatar": "🎲",
-      "coins": 5000,
+      "coins": 0,
       "totalWinnings": 0,
       "gamesPlayed": 0,
       "gamesWon": 0,
@@ -108,6 +108,27 @@
         "title": "Dice Novice"
       },
       "createdAt": 1790597546549
+    },
+    "2af90ff5-08d7-4006-adab-7829f7f7d65b": {
+      "id": "2af90ff5-08d7-4006-adab-7829f7f7d65b",
+      "username": "Player_4124",
+      "avatar": "🎲",
+      "coins": 0,
+      "totalWinnings": 0,
+      "gamesPlayed": 0,
+      "gamesWon": 0,
+      "biggestWin": 0,
+      "inventory": [
+        "dice_classic",
+        "mat_velvet_green",
+        "title_novice"
+      ],
+      "equipped": {
+        "diceSkin": "dice_classic",
+        "tableMat": "mat_velvet_green",
+        "title": "Dice Novice"
+      },
+      "createdAt": 1791017037493
     }
   },
   "auditLog": []

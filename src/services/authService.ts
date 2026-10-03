@@ -233,7 +233,17 @@ export function getStoredLocalProfile(): UserProfile | null {
   try {
     const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
     if (raw) {
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        // Strip out legacy initial 5000 starting balance if the account is new / has no winnings
+        if ((!parsed.gamesPlayed || parsed.gamesPlayed === 0) && (!parsed.totalWinnings || parsed.totalWinnings === 0) && parsed.coins === 5000) {
+          parsed.coins = 0;
+          try {
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(parsed));
+          } catch {}
+        }
+        return parsed;
+      }
     }
   } catch (e) {
     console.error('Failed reading local profile:', e);
@@ -647,6 +657,10 @@ export async function signInWithGoogleInstant(
   const fallbackAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=4285F4&color=fff&bold=true&size=128`;
   const initialAvatar = base?.avatar || fallbackAvatar;
 
+  const initialCoins = typeof existingRemote?.coins === 'number'
+    ? existingRemote.coins
+    : (base && !base.isGuest && typeof base.coins === 'number' ? base.coins : 0);
+
   const googleProfile: UserProfile = {
     ...(base || createDefaultProfile(safeId, name)),
     id: safeId,
@@ -655,6 +669,7 @@ export async function signInWithGoogleInstant(
     avatar: initialAvatar,
     googleAvatar: base?.googleAvatar || initialAvatar,
     googleName: base?.googleName || name,
+    coins: initialCoins,
     isGuest: false,
     authProvider: 'google',
   };
@@ -859,11 +874,13 @@ export async function signInWithEmail(
         let profile = await fetchRemoteProfile(data.user.id);
         if (!profile) {
           const stored = getStoredLocalProfile();
+          const base = (stored && !stored.isGuest) ? stored : null;
           profile = {
-            ...(stored || createDefaultProfile(data.user.id)),
+            ...(base || createDefaultProfile(data.user.id)),
             id: data.user.id,
             email: data.user.email || cleanEmail,
-            username: data.user.user_metadata?.username || stored?.username || cleanEmail.split('@')[0],
+            username: data.user.user_metadata?.username || base?.username || cleanEmail.split('@')[0],
+            coins: typeof base?.coins === 'number' ? base.coins : 0,
             isGuest: false,
             authProvider: 'email',
             hasPassword: true,
