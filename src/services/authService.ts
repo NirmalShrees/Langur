@@ -323,6 +323,18 @@ export async function fetchRemoteProfile(userId: string): Promise<UserProfile | 
       (data.avatar_url?.startsWith('http') ? data.avatar_url : undefined);
     const googleName = data.google_name || rawStats.googleName || data.username;
 
+    let finalCoins = typeof data.coins === 'number' ? data.coins : (typeof rawStats.coins === 'number' ? rawStats.coins : 0);
+    const gamesPlayedCount = data.games_played ?? rawStats.gamesPlayed ?? 0;
+    const totalWinningsCount = data.total_winnings ?? rawStats.totalWinnings ?? 0;
+
+    // Reset legacy 5,000 sign-up bonus from old Supabase triggers or defaults
+    if (finalCoins === 5000 && gamesPlayedCount === 0 && totalWinningsCount === 0) {
+      finalCoins = 0;
+      if (supabase && isSupabaseConfigured()) {
+        supabase.from('profiles').update({ coins: 0, updated_at: new Date().toISOString() }).eq('id', data.id).then();
+      }
+    }
+
     return {
       id: data.id,
       email: data.email || undefined,
@@ -330,9 +342,9 @@ export async function fetchRemoteProfile(userId: string): Promise<UserProfile | 
       avatar: data.avatar || data.avatar_url || '🎲',
       googleAvatar,
       googleName,
-      coins: typeof data.coins === 'number' ? data.coins : (typeof rawStats.coins === 'number' ? rawStats.coins : 0),
-      totalWinnings: data.total_winnings ?? rawStats.totalWinnings ?? 0,
-      gamesPlayed: data.games_played ?? rawStats.gamesPlayed ?? 0,
+      coins: finalCoins,
+      totalWinnings: totalWinningsCount,
+      gamesPlayed: gamesPlayedCount,
       gamesWon: data.games_won ?? rawStats.gamesWon ?? 0,
       biggestWin: data.biggest_win ?? rawStats.biggestWin ?? 0,
       isAdmin,

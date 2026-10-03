@@ -16,7 +16,7 @@ create table if not exists public.profiles (
   email text,
   username text not null default 'Festival Player',
   avatar text default '🎲',
-  coins bigint default 5000,
+  coins bigint default 0,
   coin_history jsonb default '[]'::jsonb,
   notifications jsonb default '[]'::jsonb,
   stats jsonb default '{
@@ -144,7 +144,7 @@ begin
       new.raw_user_meta_data->>'picture',
       '🎲'
     ),
-    5000,
+    0,
     '[]'::jsonb,
     jsonb_build_object(
       'gamesPlayed', 0,
@@ -191,7 +191,7 @@ select
     u.raw_user_meta_data->>'picture',
     '🎲'
   ) as avatar,
-  5000 as coins,
+  0 as coins,
   '[]'::jsonb as notifications,
   jsonb_build_object(
     'gamesPlayed', 0,

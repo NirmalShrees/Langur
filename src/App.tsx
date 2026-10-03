@@ -386,9 +386,9 @@ export default function App() {
       const remote = await fetchRemoteProfile(sessionUser.id);
       const current = getStoredLocalProfile() || createDefaultProfile(sessionUser.id);
 
-      // Check whether this account already exists in Supabase or local device
+      // Check whether this account is an established returning account
       const isAlreadyRegistered =
-        Boolean(remote && (remote.profileConfigured || remote.gamesPlayed > 0 || remote.createdAt < Date.now() - 5000)) ||
+        Boolean(remote && (remote.profileConfigured || remote.gamesPlayed > 0 || remote.totalWinnings > 0)) ||
         localStorage.getItem(`langur_burja_account_created_${sessionUser.id}`) === 'true' ||
         localStorage.getItem('langur_burja_google_configured') === 'true';
 
@@ -410,9 +410,10 @@ export default function App() {
       if (googleName) localStorage.setItem('langur_burja_google_name', googleName);
       if (googleAvatar) localStorage.setItem('langur_burja_google_avatar', googleAvatar);
 
-      const finalCoins = typeof remote?.coins === 'number'
-        ? remote.coins
-        : (isAlreadyRegistered && current && !current.isGuest && typeof current.coins === 'number' ? current.coins : 0);
+      let finalCoins = typeof remote?.coins === 'number' ? remote.coins : 0;
+      if (!isAlreadyRegistered || (finalCoins === 5000 && (!remote?.gamesPlayed || remote.gamesPlayed === 0) && (!remote?.totalWinnings || remote.totalWinnings === 0))) {
+        finalCoins = 0;
+      }
 
       const linkedUser: UserProfile = {
         ...(remote || current),
@@ -1566,16 +1567,17 @@ export default function App() {
         return;
       }
 
-      // Check remote cloud profile to determine if this is a returning or first-time user
+      // Check remote cloud profile to determine if this is an established returning user
       const remote = await fetchRemoteProfile(authedUser.id);
       const isAlreadyRegistered =
-        Boolean(remote && (remote.profileConfigured || remote.gamesPlayed > 0 || remote.createdAt < Date.now() - 5000)) ||
+        Boolean(remote && (remote.profileConfigured || remote.gamesPlayed > 0 || remote.totalWinnings > 0)) ||
         localStorage.getItem(`langur_burja_account_created_${authedUser.id}`) === 'true' ||
         localStorage.getItem('langur_burja_google_configured') === 'true';
 
-      const finalCoins = typeof remote?.coins === 'number'
-        ? remote.coins
-        : (isAlreadyRegistered && authedUser && !authedUser.isGuest && typeof authedUser.coins === 'number' ? authedUser.coins : 0);
+      let finalCoins = typeof remote?.coins === 'number' ? remote.coins : 0;
+      if (!isAlreadyRegistered || (finalCoins === 5000 && (!remote?.gamesPlayed || remote.gamesPlayed === 0) && (!remote?.totalWinnings || remote.totalWinnings === 0))) {
+        finalCoins = 0;
+      }
 
       const finalUser: UserProfile = {
         ...(remote || authedUser),
