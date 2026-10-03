@@ -130,6 +130,9 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
     targetCamRef.current.angleX = 0;
     targetCamRef.current.height = 5.8;
     targetCamRef.current.radius = 4.0;
+    if (rendererRef.current) {
+      rendererRef.current.shadowMap.needsUpdate = true;
+    }
   }, []);
 
   // Update felt color dynamically without re-mounting the Three.js scene
@@ -483,6 +486,8 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFShadowMap;
+    renderer.shadowMap.autoUpdate = false;
+    renderer.shadowMap.needsUpdate = true;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.28;
     renderer.domElement.style.width = '100%';
@@ -735,11 +740,11 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
 
       scene.add(mesh);
 
-      // Floor glow halo for winner highlight (elevated with polygonOffset to never flicker)
+      // Floor glow halo for winner highlight (elevated cleanly above mandala rings to eliminate Z-fighting)
       const glowRing = new THREE.Mesh(glowRingGeo, glowRingMat.clone());
       glowRing.name = 'glowRing';
       glowRing.rotation.x = -Math.PI / 2;
-      glowRing.position.set(restPos.x, 0.115, restPos.z);
+      glowRing.position.set(restPos.x, 0.125, restPos.z);
       glowRing.visible = false;
       scene.add(glowRing);
 
@@ -887,8 +892,17 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
         }
       }
 
-      currentShakeZoom = THREE.MathUtils.lerp(currentShakeZoom, targetShakeZoom, 0.065);
-      currentLookAtY = THREE.MathUtils.lerp(currentLookAtY, targetLookAtY, 0.065);
+      if (Math.abs(currentShakeZoom - targetShakeZoom) > 0.0005) {
+        currentShakeZoom = THREE.MathUtils.lerp(currentShakeZoom, targetShakeZoom, 0.065);
+      } else {
+        currentShakeZoom = targetShakeZoom;
+      }
+
+      if (Math.abs(currentLookAtY - targetLookAtY) > 0.0005) {
+        currentLookAtY = THREE.MathUtils.lerp(currentLookAtY, targetLookAtY, 0.065);
+      } else {
+        currentLookAtY = targetLookAtY;
+      }
 
       // Smoothly pull back camera distance (+62% radius and +44% height) when zoomed out during shaking
       const zoomFactor = 1.0 + currentShakeZoom * 0.62;
@@ -899,12 +913,29 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
 
       const targetX = Math.sin(targetCamRef.current.angleX) * effectiveRadius;
       const targetZ = Math.cos(targetCamRef.current.angleX) * effectiveRadius;
-      camera.position.x = THREE.MathUtils.lerp(camera.position.x, targetX, 0.065);
-      camera.position.z = THREE.MathUtils.lerp(camera.position.z, targetZ, 0.065);
-      camera.position.y = THREE.MathUtils.lerp(camera.position.y, effectiveHeight, 0.065);
+
+      if (Math.abs(camera.position.x - targetX) > 0.0005) {
+        camera.position.x = THREE.MathUtils.lerp(camera.position.x, targetX, 0.065);
+      } else {
+        camera.position.x = targetX;
+      }
+
+      if (Math.abs(camera.position.z - targetZ) > 0.0005) {
+        camera.position.z = THREE.MathUtils.lerp(camera.position.z, targetZ, 0.065);
+      } else {
+        camera.position.z = targetZ;
+      }
+
+      if (Math.abs(camera.position.y - effectiveHeight) > 0.0005) {
+        camera.position.y = THREE.MathUtils.lerp(camera.position.y, effectiveHeight, 0.065);
+      } else {
+        camera.position.y = effectiveHeight;
+      }
+
       camera.lookAt(0, currentLookAtY, 0);
 
       if (isRollingAnimRef.current) {
+        renderer.shadowMap.needsUpdate = true;
         const elapsed = (time - animStartTimeRef.current) / 1000;
         const pauseEnd = 3.25 + revealPauseDelayRef.current;
         const liftDuration = 0.85;
@@ -1278,6 +1309,9 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
       brassLipGeo.dispose();
       brassLipMat.dispose();
       dieGeometry.dispose();
+      wireframeGeo.dispose();
+      wireframeLineMat.dispose();
+      diceMaterials.forEach((m) => m.dispose());
       cupGeo.dispose();
       brassMat.dispose();
       lipRingGeo.dispose();
@@ -1308,7 +1342,7 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
       {phase === 'betting' && bettingTimer !== undefined && bettingTimer <= 3 && bettingTimer >= 1 && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30 select-none">
           <div
-            className="flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-slate-950/90 border border-amber-400/80 shadow-2xl backdrop-blur-md animate-timer-urgent"
+            className="flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-slate-950/95 border border-amber-400/80 shadow-2xl animate-timer-urgent"
           >
             <span className="font-mono text-2xl sm:text-3xl font-black text-amber-400 drop-shadow-md">
               {bettingTimer}
@@ -1320,7 +1354,7 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
       {/* Small Winning Badge on Top Left */}
       {phase === 'payout' && winningSymbols.length > 0 && (
         <div className="absolute top-2 left-2 z-20 pointer-events-none animate-in fade-in duration-200">
-          <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-950/90 border border-emerald-400/50 backdrop-blur-md shadow-md text-emerald-200 whitespace-nowrap">
+          <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-950/95 border border-emerald-400/50 shadow-md text-emerald-200 whitespace-nowrap">
             <span className="text-[10px] font-black text-emerald-400 uppercase tracking-wide">WON:</span>
             <div className="flex items-center gap-1 whitespace-nowrap">
               {winningSymbols.map(([symbolKey, count]) => {
@@ -1353,10 +1387,10 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
           id="wireframe-debug-btn"
           onClick={() => setShowWireframe((prev) => !prev)}
           title={showWireframe ? 'Hide 3D Wireframe' : 'Show 3D Wireframe'}
-          className={`p-1.5 rounded-xl border backdrop-blur-md shadow-md active:scale-95 transition-all flex items-center justify-center ${
+          className={`p-1.5 rounded-xl border shadow-md active:scale-95 transition-all flex items-center justify-center ${
             showWireframe
-              ? 'bg-cyan-950/90 text-cyan-300 border-cyan-400/80 shadow-[0_0_12px_rgba(6,182,212,0.4)]'
-              : 'bg-slate-950/85 hover:bg-slate-900 text-slate-400 hover:text-cyan-300 border-slate-700/60 hover:border-cyan-500/40'
+              ? 'bg-cyan-950 text-cyan-300 border-cyan-400/80 shadow-[0_0_12px_rgba(6,182,212,0.4)]'
+              : 'bg-slate-950/90 hover:bg-slate-900 text-slate-400 hover:text-cyan-300 border-slate-700/60 hover:border-cyan-500/40'
           }`}
         >
           <Grid className="w-3.5 h-3.5 shrink-0" />
@@ -1365,7 +1399,7 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
           id="camera-reset-btn"
           onClick={handleResetCamera}
           title="Reset Camera View"
-          className="p-1.5 rounded-xl bg-slate-950/85 hover:bg-slate-900 text-slate-300 hover:text-amber-300 border border-slate-700/60 hover:border-amber-500/40 backdrop-blur-md shadow-md active:scale-95 transition-all"
+          className="p-1.5 rounded-xl bg-slate-950/90 hover:bg-slate-900 text-slate-300 hover:text-amber-300 border border-slate-700/60 hover:border-amber-500/40 shadow-md active:scale-95 transition-all"
         >
           <RotateCcw className="w-3.5 h-3.5" />
         </button>
@@ -1374,7 +1408,7 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
       {/* Floating Tumbling Indicator during roll: Small & strictly single-line */}
       {phase === 'rolling' && (
         <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
-          <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-950/90 border border-amber-400/80 text-amber-300 font-bold text-[10.5px] tracking-wide shadow-xl backdrop-blur-md animate-pulse whitespace-nowrap">
+          <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-950/95 border border-amber-400/80 text-amber-300 font-bold text-[10.5px] tracking-wide shadow-xl animate-pulse whitespace-nowrap">
             <Sparkles className="w-3 h-3 text-amber-400 animate-spin shrink-0" />
             <span className="whitespace-nowrap">Shaking bucket & revealing...</span>
           </div>
@@ -1433,7 +1467,7 @@ const ThreeDiceArenaComponent: React.FC<ThreeDiceArenaProps> = ({
       {/* Bottom Right Orbit / 3D Navigation Icon */}
       <div
         id="camera-orbit-indicator"
-        className="absolute bottom-2 right-2 z-10 pointer-events-none p-1.5 rounded-xl bg-slate-950/70 border border-slate-800/80 text-amber-400/80 backdrop-blur-sm shadow-sm"
+        className="absolute bottom-2 right-2 z-10 pointer-events-none p-1.5 rounded-xl bg-slate-950/90 border border-slate-800/80 text-amber-400/80 shadow-sm"
         title="3D Touch Orbit & Pinch Zoom"
       >
         <Compass className="w-3.5 h-3.5" />

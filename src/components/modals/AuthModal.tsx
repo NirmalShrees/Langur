@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
   Crown,
-  Dice5,
   X,
   AlertCircle,
   Mail,
@@ -14,7 +13,6 @@ import {
 import { UserProfile } from '../../types.js';
 import {
   signInWithGoogle,
-  signInAsGuest,
   signInWithEmail,
 } from '../../services/authService.js';
 import { sound } from '../../utils/audio.js';
@@ -37,7 +35,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
-  const [guestLoading, setGuestLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isGoogleAccountWithoutPassword, setIsGoogleAccountWithoutPassword] = useState<boolean>(false);
 
@@ -46,7 +43,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     if (!isOpen) {
       setLoading(false);
       setGoogleLoading(false);
-      setGuestLoading(false);
       setErrorMsg(null);
       setIsGoogleAccountWithoutPassword(false);
     }
@@ -105,19 +101,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setGoogleLoading(true);
   };
 
-  // 3. Guest Play
-  const handleGuestPlay = async () => {
-    setErrorMsg(null);
-    setIsGoogleAccountWithoutPassword(false);
-    setGuestLoading(true);
-    sound.playChipSound();
-
-    const res = await signInAsGuest();
-    setGuestLoading(false);
-    onAuthSuccess(res.user);
-    onClose();
-  };
-
   return (
     <div
       id="auth-modal-backdrop"
@@ -156,14 +139,81 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <p className="text-[11.5px] text-amber-300/80 flex items-center justify-center gap-1.5 mt-0.5">
             <span className="font-nepali-title text-amber-200 font-bold">लङ्गुर बुर्जा</span>
             <span className="text-amber-500/60">•</span>
-            <span className="font-serif text-slate-300 text-[11px]">Festival Dice Table</span>
+            <span className="font-serif text-slate-300 text-[11px]">Sign in to Play</span>
           </p>
         </div>
 
-        {/* Unified Scrollable Body: All three options in order */}
+        {/* Unified Scrollable Body: Email and Google authentication options */}
         <div className="overflow-y-auto flex-1 pr-0.5 space-y-3.5 scrollbar-thin scrollbar-thumb-slate-800">
           {/* ========================================================= */}
-          {/* 1. EMAIL LOGIN (Option 1 - Registered Accounts Only) */}
+          {/* 1. CONTINUE WITH GOOGLE (Primary Instant Sign-In) */}
+          {/* ========================================================= */}
+          <div>
+            <button
+              id="auth-google-signin-btn"
+              onClick={handleGoogleSignIn}
+              disabled={googleLoading || loading}
+              className="w-full py-3 px-4 rounded-2xl bg-white hover:bg-slate-100 text-slate-900 font-bold text-xs sm:text-sm tracking-wide shadow-lg border border-slate-200 active:scale-[0.98] transition-all flex items-center justify-center gap-2.5 disabled:opacity-80 cursor-pointer"
+            >
+              {googleLoading ? (
+                <div className="flex items-center justify-center gap-2 text-slate-800 text-xs">
+                  <div className="w-3.5 h-3.5 border-2 border-slate-400 border-t-amber-600 rounded-full animate-spin shrink-0" />
+                  <span>Connecting to Google...</span>
+                </div>
+              ) : (
+                <>
+                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                    <path
+                      fill="#4285F4"
+                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                    />
+                    <path
+                      fill="#34A853"
+                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                    />
+                    <path
+                      fill="#FBBC05"
+                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                    />
+                    <path
+                      fill="#EA4335"
+                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                    />
+                  </svg>
+                  <span>Continue with Google</span>
+                </>
+              )}
+            </button>
+
+            {googleLoading && (
+              <div className="flex items-center justify-between px-1 pt-1.5 text-xs animate-in fade-in">
+                <span className="text-amber-300 text-[10.5px] animate-pulse flex items-center gap-1.5">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400" />
+                  Redirecting to Google...
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setGoogleLoading(false)}
+                  className="text-slate-300 hover:text-white underline font-semibold text-[10.5px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 active:scale-95 transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Divider */}
+          <div className="relative py-0.5">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-slate-800" />
+            </div>
+            <div className="relative flex justify-center text-[9.5px] uppercase font-mono tracking-wider">
+              <span className="bg-[#090e1a] px-2.5 text-slate-500">Or sign in with email</span>
+            </div>
+          </div>
+
+          {/* ========================================================= */}
+          {/* 2. EMAIL LOGIN (Option 2) */}
           {/* ========================================================= */}
           <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800/90 space-y-2.5">
             <div className="flex items-center justify-between">
@@ -184,7 +234,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   <span>Google Account Detected</span>
                 </div>
                 <p className="text-slate-300 leading-snug">
-                  You previously connected with Google. Please use <strong>Continue with Google</strong> below to log in, then configure your email password in your Player Profile.
+                  You previously connected with Google. Please use <strong>Continue with Google</strong> above to log in, then configure your email password in your Player Profile.
                 </p>
               </div>
             )}
@@ -255,93 +305,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </form>
           </div>
 
-          {/* Divider */}
-          <div className="relative py-0.5">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-slate-800" />
-            </div>
-            <div className="relative flex justify-center text-[9.5px] uppercase font-mono tracking-wider">
-              <span className="bg-[#090e1a] px-2.5 text-slate-500">Or connect with</span>
-            </div>
-          </div>
-
-          {/* ========================================================= */}
-          {/* 2. CONTINUE WITH GOOGLE (Option 2) */}
-          {/* ========================================================= */}
-          <div>
-            <button
-              id="auth-google-signin-btn"
-              onClick={handleGoogleSignIn}
-              disabled={googleLoading || loading || guestLoading}
-              className="w-full py-3 px-4 rounded-2xl bg-white hover:bg-slate-100 text-slate-900 font-bold text-xs sm:text-sm tracking-wide shadow-lg border border-slate-200 active:scale-[0.98] transition-all flex items-center justify-center gap-2.5 disabled:opacity-80 cursor-pointer"
-            >
-              {googleLoading ? (
-                <div className="flex items-center justify-center gap-2 text-slate-800 text-xs">
-                  <div className="w-3.5 h-3.5 border-2 border-slate-400 border-t-amber-600 rounded-full animate-spin shrink-0" />
-                  <span>Connecting to Google...</span>
-                </div>
-              ) : (
-                <>
-                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
-                    <path
-                      fill="#4285F4"
-                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                    />
-                    <path
-                      fill="#34A853"
-                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                    />
-                    <path
-                      fill="#FBBC05"
-                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                    />
-                    <path
-                      fill="#EA4335"
-                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                    />
-                  </svg>
-                  <span>Continue with Google</span>
-                </>
-              )}
-            </button>
-
-            {googleLoading && (
-              <div className="flex items-center justify-between px-1 pt-1.5 text-xs animate-in fade-in">
-                <span className="text-amber-300 text-[10.5px] animate-pulse flex items-center gap-1.5">
-                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400" />
-                  Redirecting to Google...
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setGoogleLoading(false)}
-                  className="text-slate-300 hover:text-white underline font-semibold text-[10.5px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 active:scale-95 transition-all cursor-pointer"
-                >
-                  Cancel
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* ========================================================= */}
-          {/* 3. PLAY AS GUEST (Option 3) */}
-          {/* ========================================================= */}
-          <div>
-            <button
-              id="auth-guest-play-btn"
-              onClick={handleGuestPlay}
-              disabled={guestLoading || loading || googleLoading}
-              className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-600 hover:from-amber-400 text-slate-950 font-serif font-black text-xs sm:text-sm tracking-wider shadow-lg shadow-amber-500/20 border border-amber-300 active:scale-[0.98] transition-all flex items-center justify-between gap-2 disabled:opacity-60 cursor-pointer"
-            >
-              <div className="flex items-center gap-2">
-                <Dice5 className="w-4 h-4 text-slate-950 shrink-0" />
-                <span>Play as Guest</span>
-              </div>
-              <span className="text-[10.5px] px-2.5 py-0.5 rounded-full bg-slate-950/20 font-mono font-bold">
-                Instant • 5,000 🪙
-              </span>
-            </button>
-          </div>
-
           {/* Error Message */}
           {errorMsg && (
             <div className="p-2.5 rounded-xl bg-rose-950/80 border border-rose-500/50 text-rose-200 text-xs flex items-start gap-2 animate-in fade-in">
@@ -354,7 +317,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         {/* Footer Note */}
         <div className="mt-3 text-center shrink-0">
           <p className="text-[10px] text-slate-400 font-sans">
-            Coins and unlocked mats are saved securely to your player session.
+            Coins, game stats, and table progress are saved securely to your cloud account.
           </p>
         </div>
       </div>

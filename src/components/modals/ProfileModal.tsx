@@ -391,11 +391,11 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                   </span>
                   <span className="inline-flex items-center gap-0.5 text-[8.5px] font-mono text-emerald-400 bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-500/30">
                     <ShieldCheck className="w-2.5 h-2.5 shrink-0" />
-                    <span>{user.isGuest ? 'Guest' : user.authProvider === 'google' ? 'Google' : 'Email'}</span>
+                    <span>{user.authProvider === 'google' ? 'Google Account' : 'Email Account'}</span>
                   </span>
                 </div>
 
-                {/* Bottom Row: Coin Balance on Left & Sign In / Sign Out Button on Bottom Right */}
+                {/* Bottom Row: Coin Balance on Left & Sign Out Button on Bottom Right */}
                 <div className="flex items-center justify-between gap-2 mt-1.5 pt-1.5 border-t border-slate-800/80">
                   <div className="flex items-center gap-1.5 min-w-0">
                     <span className="text-[9.5px] uppercase font-mono text-slate-400 shrink-0">Balance:</span>
@@ -406,37 +406,21 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Bottom Right Box Inside Avatar/Name Card: Sign In (for Guest) or Sign Out (for Logged In) */}
+                  {/* Sign Out for Logged In Account */}
                   <div className="shrink-0">
-                    {user.isGuest ? (
-                      <button
-                        type="button"
-                        id="profile-card-signin-btn"
-                        onClick={() => {
-                          onClose();
-                          onOpenAuth?.();
-                        }}
-                        className="px-2.5 py-0.5 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-[10.5px] shadow-sm flex items-center gap-1 active:scale-95 transition-all cursor-pointer border border-amber-300/60 whitespace-nowrap"
-                        title="Sign in with Google or Email"
-                      >
-                        <LogIn className="w-3 h-3" />
-                        <span>Sign In</span>
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        id="profile-card-signout-btn"
-                        onClick={() => {
-                          onSignOut?.();
-                          onClose();
-                        }}
-                        className="px-2 py-0.5 rounded-lg bg-slate-900/90 hover:bg-rose-950/80 text-slate-300 hover:text-rose-200 border border-slate-700/80 hover:border-rose-500/50 text-[10px] font-semibold transition-all flex items-center gap-1 cursor-pointer active:scale-95 shadow-sm whitespace-nowrap"
-                        title="Sign Out of Account"
-                      >
-                        <LogOut className="w-3 h-3 text-rose-400" />
-                        <span>Sign Out</span>
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      id="profile-card-signout-btn"
+                      onClick={() => {
+                        onSignOut?.();
+                        onClose();
+                      }}
+                      className="px-2 py-0.5 rounded-lg bg-slate-900/90 hover:bg-rose-950/80 text-slate-300 hover:text-rose-200 border border-slate-700/80 hover:border-rose-500/50 text-[10px] font-semibold transition-all flex items-center gap-1 cursor-pointer active:scale-95 shadow-sm whitespace-nowrap"
+                      title="Sign Out of Account"
+                    >
+                      <LogOut className="w-3 h-3 text-rose-400" />
+                      <span>Sign Out</span>
+                    </button>
                   </div>
                 </div>
               </div>

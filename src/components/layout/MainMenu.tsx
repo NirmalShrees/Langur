@@ -139,8 +139,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
   return (
     <div
       id="main-menu-screen"
-      className={`w-full max-w-md sm:max-w-lg md:max-w-2xl lg:max-w-4xl xl:max-w-5xl h-[100dvh] max-h-screen md:h-[94vh] md:max-h-[920px] md:my-auto md:rounded-3xl flex flex-col justify-between ${currentTheme.screenBg} text-slate-100 shadow-2xl border-x md:border ${currentTheme.screenBorder} select-none overflow-y-auto scrollbar-none p-3 sm:p-4 md:p-5 lg:p-6 pt-[max(0.75rem,env(safe-area-inset-top,0.75rem))] transition-all duration-200 transform-gpu`}
-      style={{ transform: 'translateZ(0)' }}
+      className={`w-full max-w-md sm:max-w-lg md:max-w-2xl lg:max-w-4xl xl:max-w-5xl h-[100dvh] max-h-screen md:h-[94vh] md:max-h-[920px] md:my-auto md:rounded-3xl flex flex-col justify-between ${currentTheme.screenBg} text-slate-100 shadow-2xl border-x md:border ${currentTheme.screenBorder} select-none overflow-y-auto scrollbar-none p-3 sm:p-4 md:p-5 lg:p-6 pt-[max(0.75rem,env(safe-area-inset-top,0.75rem))] transition-colors duration-200`}
     >
       {/* 1 & 2. Top Nav Panel & Profile Panel (Directly Touching - No Gap) */}
       <div className={`shrink-0 flex flex-col rounded-2xl md:rounded-3xl bg-slate-900/90 ${currentTheme.panelBorder} shadow-lg shadow-black/40 overflow-hidden divide-y ${currentTheme.panelDivide}`}>
@@ -267,19 +266,10 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                 <span className="text-[9px] sm:text-[10.5px] text-slate-400 truncate">
                   {user.equipped?.title || 'Festival Player'}
                 </span>
-                {user.isGuest ? (
-                  <button
-                    onClick={onOpenAuth}
-                    className="text-[8px] sm:text-[9px] font-mono px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-400/40 hover:bg-amber-500/30 transition-colors"
-                  >
-                    GUEST
-                  </button>
-                ) : (
-                  <span className="text-[8px] sm:text-[9px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 flex items-center gap-0.5">
-                    <Check className="w-2 h-2" />
-                    SYNCED
-                  </span>
-                )}
+                <span className="text-[8px] sm:text-[9px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 flex items-center gap-0.5">
+                  <Check className="w-2 h-2" />
+                  SYNCED
+                </span>
               </div>
             </div>
           </div>

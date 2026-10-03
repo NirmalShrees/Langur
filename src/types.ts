@@ -142,7 +142,7 @@ export interface UserProfile {
   tableValidityDays?: number;
   createdTables?: CreatedTableSummary[];
   created_tables?: CreatedTableSummary[];
-  authProvider?: 'google' | 'email' | 'guest';
+  authProvider?: 'google' | 'email';
   profileConfigured?: boolean;
   hasPassword?: boolean;
   googleName?: string;

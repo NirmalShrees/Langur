@@ -37,28 +37,24 @@
   animation: timerPulse 1s ease-in-out infinite;
   transform-origin: center;
   display: inline-flex;
-  will-change: transform;
 }
 
 .animate-timer-urgent {
   animation: timerUrgentPulse 1s ease-in-out infinite;
   transform-origin: center;
   display: inline-flex;
-  will-change: transform;
 }
 
 .animate-timer-tick {
   animation: timerPulse 1s ease-in-out infinite;
   transform-origin: center;
   display: inline-flex;
-  will-change: transform;
 }
 
 .animate-timer-tick-urgent {
   animation: timerUrgentPulse 1s ease-in-out infinite;
   transform-origin: center;
   display: inline-flex;
-  will-change: transform;
 }
 
 @keyframes speakingGlow {

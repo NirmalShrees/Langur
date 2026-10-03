@@ -456,11 +456,13 @@ export default function App() {
     [socket, isConnected, showToast]
   );
 
-  // Authentication Status Check (Logged in with Google/Email or Logged in as Guest)
+  // Authentication Status Check (Strictly Logged in with Google or Email account)
   const isAuthenticated = useMemo(() => {
     return Boolean(
-      (!user.isGuest && (user.email || user.authProvider === 'email' || user.authProvider === 'google')) ||
-      (typeof window !== 'undefined' && localStorage.getItem('langur_burja_authenticated') === 'true')
+      !user.isGuest &&
+      (user.email || user.authProvider === 'email' || user.authProvider === 'google') &&
+      typeof window !== 'undefined' &&
+      localStorage.getItem('langur_burja_authenticated') === 'true'
     );
   }, [user.isGuest, user.email, user.authProvider]);
 
@@ -1554,21 +1556,6 @@ export default function App() {
 
   const handleAuthSuccess = useCallback(
     async (authedUser: UserProfile) => {
-      if (authedUser.isGuest) {
-        setUser(authedUser);
-        saveLocalProfile(authedUser);
-        localStorage.setItem('langur_burja_authenticated', 'true');
-        localStorage.setItem('langur_burja_welcomed', 'true');
-        setIsAuthModalOpen(false);
-        setIsFirstTimeUser(true);
-        setIsProfileOpen(true);
-        showToast('Welcome to Langur Burja! Set up your player name & avatar.', 'info');
-        if (socket && isConnected) {
-          socket.emit('user:init', { id: authedUser.id });
-        }
-        return;
-      }
-
       // Check remote cloud profile to determine if this is an established returning user
       const remote = await fetchRemoteProfile(authedUser.id);
       const isAlreadyRegistered =
@@ -1627,18 +1614,18 @@ export default function App() {
     localStorage.removeItem('langur_burja_authenticated');
     localStorage.removeItem('langur_burja_google_configured');
     localStorage.removeItem('langur_burja_welcomed');
-    const guestUser = createDefaultProfile();
-    setUser(guestUser);
-    saveLocalProfile(guestUser);
+    const resetUser = createDefaultProfile();
+    setUser(resetUser);
+    saveLocalProfile(resetUser);
     setIsInGame(false);
     setIsProfileOpen(false);
     setIsSettingsOpen(false);
     setIsTableModalOpen(false);
     setIsAuthModalOpen(true);
-    showToast('Signed out successfully. Sign in or play as guest.', 'info');
+    showToast('Signed out successfully. Please sign in with Google or Email to play.', 'info');
 
     if (socket && isConnected) {
-      socket.emit('user:init', { id: guestUser.id });
+      socket.emit('user:init', { id: resetUser.id });
     }
   }, [socket, isConnected, showToast]);
 
@@ -3378,7 +3365,7 @@ export default function App() {
           onStartGame={() => {
             if (!isAuthenticated) {
               setIsAuthModalOpen(true);
-              showToast('Please sign in or continue as guest to start playing.', 'info');
+              showToast('Please sign in with Google or Email to start playing.', 'info');
               return;
             }
             setIsInGame(true);
@@ -3390,7 +3377,7 @@ export default function App() {
           onOpenTableModal={(tab) => {
             if (!isAuthenticated) {
               setIsAuthModalOpen(true);
-              showToast('Please sign in or continue as guest to create or join tables.', 'info');
+              showToast('Please sign in with Google or Email to create or join tables.', 'info');
               return;
             }
             setTableModalTab(tab);
@@ -3832,7 +3819,7 @@ export default function App() {
           if (isAuthenticated) {
             setIsAuthModalOpen(false);
           } else {
-            showToast('Please sign in or choose guest to start playing.', 'info');
+            showToast('Please sign in with Google or Email to play.', 'info');
           }
         }}
         onAuthSuccess={handleAuthSuccess}

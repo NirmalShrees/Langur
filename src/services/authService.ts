@@ -201,10 +201,10 @@ export async function fetchRemoteCoinHistory(userId: string): Promise<CoinReceip
 }
 
 /**
- * Creates default fallback profile for guest players
+ * Creates default fallback profile template
  */
-export function createDefaultProfile(id?: string, username = 'Guest Festival Player'): UserProfile {
-  const generatedId = id || `guest_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`;
+export function createDefaultProfile(id?: string, username = 'Festival Player'): UserProfile {
+  const generatedId = id || `user_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`;
   return {
     id: generatedId,
     username,
@@ -221,8 +221,8 @@ export function createDefaultProfile(id?: string, username = 'Guest Festival Pla
       title: 'Dice Novice',
     },
     createdAt: Date.now(),
-    isGuest: true,
-    authProvider: 'guest',
+    isGuest: false,
+    authProvider: 'email',
   };
 }
 
@@ -695,40 +695,6 @@ export async function signInWithGoogleInstant(
 }
 
 /**
- * Play as Guest (Instant Access)
- */
-export async function signInAsGuest(): Promise<{ user: UserProfile }> {
-  // If Supabase client is active, try anonymous sign in
-  if (supabase && isSupabaseConfigured()) {
-    try {
-      const { data, error } = await supabase.auth.signInAnonymously();
-      if (!error && data?.user) {
-        const guestProfile: UserProfile = {
-          ...createDefaultProfile(data.user.id, `Guest_${data.user.id.substring(0, 6)}`),
-          isGuest: true,
-          authProvider: 'guest',
-        };
-        saveLocalProfile(guestProfile);
-        return { user: guestProfile };
-      }
-    } catch (err) {
-      console.warn('Supabase anonymous sign-in skipped, using local guest:', err);
-    }
-  }
-
-  // Local Guest Session
-  let existing = getStoredLocalProfile();
-  if (!existing) {
-    existing = createDefaultProfile();
-  } else {
-    existing = { ...existing, isGuest: true, authProvider: 'guest' };
-  }
-
-  saveLocalProfile(existing);
-  return { user: existing };
-}
-
-/**
  * Sign Up with Email & Password
  */
 export async function signUpWithEmail(
@@ -1086,7 +1052,7 @@ export async function signOut(): Promise<void> {
     }
   }
 
-  // Convert current session to fresh local guest profile
-  const newGuest = createDefaultProfile();
-  saveLocalProfile(newGuest);
+  // Reset local stored profile to unauthenticated placeholder
+  const resetUser = createDefaultProfile();
+  saveLocalProfile(resetUser);
 }
