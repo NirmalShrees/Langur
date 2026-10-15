@@ -908,7 +908,7 @@ async function startServer() {
           isPrivate: Boolean(reqItem.isPrivate),
           settings: {
             minBet: 10,
-            maxBet: 50000,
+            maxBet: 10000000,
             bettingDuration: reqItem.bettingDuration || 20,
             payoutDuration: 6,
             autoLoop: true,
@@ -1365,8 +1365,8 @@ async function startServer() {
     let currentRoomId: string | null = null;
     let currentUserId: string | null = null;
 
-    socket.on('user:init', async (payload: { id: string; username?: string; avatar?: string }, callback) => {
-      const user = db.getOrCreateUser(payload.id, payload.username, payload.avatar);
+    socket.on('user:init', async (payload: { id: string; username?: string; avatar?: string; coins?: number }, callback) => {
+      const user = db.getOrCreateUser(payload.id, payload.username, payload.avatar, payload.coins);
       currentUserId = user.id;
       userSockets.set(user.id, socket.id);
       socketUsers.set(socket.id, user.id);
@@ -1571,7 +1571,7 @@ async function startServer() {
           u,
           tableName,
           false, // isPrivate = false so other real players can join
-          { minBet: 10, maxBet: 50000, bettingDuration: 20, autoLoop: true },
+          { minBet: 10, maxBet: 10000000, bettingDuration: 20, autoLoop: true },
           24,
           true
         );
@@ -1629,6 +1629,13 @@ async function startServer() {
 
     socket.on('bet:place', (payload: { roomId: string; userId: string; symbol: any; amount: number }, callback) => {
       const result = gameEngine.placeBet(payload.roomId, payload.userId, payload.symbol, payload.amount);
+      if (!result.success && typeof callback !== 'function') {
+        socket.emit('game:bet_rejected', {
+          symbol: payload.symbol,
+          amount: payload.amount,
+          message: result.message,
+        });
+      }
       if (typeof callback === 'function') {
         callback(result);
       }
