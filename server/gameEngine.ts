@@ -95,7 +95,7 @@ export class GameEngine {
       isPrivate: false,
       settings: {
         minBet: 10,
-        maxBet: 50000,
+        maxBet: 10000000,
         bettingDuration: 20,
         payoutDuration: 6,
         autoLoop: true,
@@ -258,7 +258,7 @@ export class GameEngine {
 
     const settings: RoomSettings = {
       minBet: 10,
-      maxBet: 50000,
+      maxBet: 10000000,
       bettingDuration: record.betting_duration || 18,
       payoutDuration: 6,
       autoLoop: true,
@@ -466,7 +466,7 @@ export class GameEngine {
 
     const settings: RoomSettings = {
       minBet: customSettings?.minBet || 10,
-      maxBet: customSettings?.maxBet || 25000,
+      maxBet: customSettings?.maxBet || 10000000,
       bettingDuration: customSettings?.bettingDuration || 20,
       payoutDuration: customSettings?.payoutDuration || 6,
       autoLoop: customSettings?.autoLoop ?? true,
@@ -727,12 +727,22 @@ export class GameEngine {
     const player = room.players[userId];
     if (!player) return;
 
-    // Refund active round bets ONLY if explicitly leaving during betting phase
-    if (isExplicitLeave && room.phase === 'betting' && player.totalBetThisRound > 0) {
+    // Refund active round bets if player leaves/disconnects during the betting phase before any dice are rolled
+    if (room.phase === 'betting' && player.totalBetThisRound > 0) {
       db.atomicRefundBet(userId, player.totalBetThisRound);
       for (const k of SYMBOL_KEYS) {
         room.tableBets[k] = Math.max(0, (room.tableBets[k] || 0) - (player.bets[k] || 0));
       }
+      player.totalBetThisRound = 0;
+    }
+
+    // If game is in rolling or payout phase and player has active bets, keep them temporarily so winnings can be awarded!
+    if ((room.phase === 'rolling' || room.phase === 'payout') && player.totalBetThisRound > 0 && !isExplicitLeave) {
+      player.isDisconnected = true;
+      player.disconnectedAt = Date.now();
+      this.broadcastSystemChat(roomId, `${player.username} disconnected. Active wager remains in play for this round.`);
+      this.io.to(`room:${roomId}`).emit('room:player_status_changed', { userId, roomState: room });
+      return;
     }
 
     delete room.players[userId];
@@ -860,12 +870,17 @@ export class GameEngine {
     }
 
     if (amount < room.settings.minBet) {
-      return { success: false, message: `Minimum bet is ${room.settings.minBet} coins` };
+      return { success: false, message: `Minimum bet is ${room.settings.minBet.toLocaleString()} coins` };
     }
 
-    const newTotalForSymbol = (player.bets[symbol] || 0) + amount;
-    if (newTotalForSymbol > room.settings.maxBet) {
-      return { success: false, message: `Maximum bet per symbol is ${room.settings.maxBet} coins` };
+    const currentTotal = player.bets[symbol] || 0;
+    const newTotalForSymbol = currentTotal + amount;
+    const maxLimit = Math.max(room.settings.maxBet || 10000000, 10000000);
+    if (newTotalForSymbol > maxLimit) {
+      return {
+        success: false,
+        message: `Maximum bet per symbol is ${maxLimit.toLocaleString()} coins. You already have ${currentTotal.toLocaleString()} coins on this tile.`,
+      };
     }
 
     // Atomic deduction in server database
@@ -923,6 +938,41 @@ export class GameEngine {
     });
 
     return { success: true, message: `Refunded ${refundAmount} coins.` };
+  }
+
+  public clearTileBet(roomId: string, userId: string, symbol: SymbolType): { success: boolean; message: string; refundAmount?: number } {
+    const room = this.rooms.get(roomId);
+    if (!room) return { success: false, message: 'Room not found' };
+
+    if (room.phase !== 'betting') {
+      return { success: false, message: 'Cannot remove bets after betting countdown ends' };
+    }
+
+    const player = room.players[userId];
+    if (!player) return { success: false, message: 'Player is not in room' };
+
+    const tileBet = player.bets[symbol] || 0;
+    if (tileBet <= 0) {
+      return { success: false, message: 'No active bet on this symbol to remove' };
+    }
+
+    db.atomicRefundBet(userId, tileBet);
+
+    room.tableBets[symbol] = Math.max(0, (room.tableBets[symbol] || 0) - tileBet);
+    player.bets[symbol] = 0;
+    player.coins += tileBet;
+    player.totalBetThisRound = Math.max(0, player.totalBetThisRound - tileBet);
+
+    this.io.to(`room:${roomId}`).emit('game:tile_bet_cleared', {
+      userId,
+      symbol,
+      refundAmount: tileBet,
+      playerCoins: player.coins,
+      playerBets: player.bets,
+      tableBets: room.tableBets,
+    });
+
+    return { success: true, message: `Refunded ${tileBet.toLocaleString()} coins.`, refundAmount: tileBet };
   }
 
   // --- Host Permissions & Controls ---

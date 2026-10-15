@@ -258,6 +258,14 @@ class FastDatabase {
     }
   }
 
+  public flushImmediately() {
+    if (this.saveTimeout) {
+      clearTimeout(this.saveTimeout);
+      this.saveTimeout = null;
+    }
+    this.flushToDisk();
+  }
+
   private scheduleSave() {
     if (this.saveTimeout) return;
     this.saveTimeout = setTimeout(() => {
@@ -372,6 +380,14 @@ class FastDatabase {
     const u = this.users.get(userId);
     if (!u) return false;
     u.coins += amount;
+    this.auditLog.push({
+      id: `audit_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      userId,
+      type: 'refund' as any,
+      amount,
+      balanceAfter: u.coins,
+      timestamp: Date.now(),
+    });
     this.scheduleSave();
     return true;
   }

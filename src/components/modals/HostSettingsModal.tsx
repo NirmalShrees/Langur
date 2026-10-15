@@ -131,11 +131,25 @@ export const HostSettingsModal: React.FC<HostSettingsModalProps> = ({
               <input
                 type="number"
                 min={100}
-                max={100000}
+                max={100000000}
                 value={maxBet}
                 onChange={(e) => setMaxBet(Math.max(minBet, parseInt(e.target.value) || minBet))}
                 className="w-full bg-slate-950 text-slate-100 px-3 py-2 rounded-xl border border-slate-800 font-mono text-xs focus:outline-none focus:border-amber-400"
               />
+              <div className="flex items-center gap-1 mt-1">
+                {[50000, 250000, 1000000, 10000000].map((amt) => (
+                  <button
+                    key={amt}
+                    type="button"
+                    onClick={() => setMaxBet(amt)}
+                    className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold cursor-pointer border ${
+                      maxBet === amt ? 'bg-amber-500 text-slate-950 border-amber-300' : 'bg-slate-900 text-amber-300/80 border-slate-800'
+                    }`}
+                  >
+                    {amt >= 1000000 ? `${amt / 1000000}M` : `${amt / 1000}K`}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 

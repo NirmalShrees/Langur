@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { SymbolType, SYMBOL_KEYS, LANGUR_BURJA_SYMBOLS, RoundResultSummary } from '../../types.js';
 import { getSymbolImageDataUrl } from '../../utils/diceTextures.js';
@@ -20,6 +20,7 @@ interface MobileBettingMatProps {
   onRepeatBets?: () => void;
   onInsufficientCoins?: (needed: number, available: number) => void;
   canRepeat?: boolean;
+  maxBet?: number;
   tableMatColor?: 'green' | 'crimson' | 'royal';
   className?: string;
 }
@@ -47,6 +48,7 @@ const MobileBettingMatComponent: React.FC<MobileBettingMatProps> = ({
   onRepeatBets,
   onInsufficientCoins,
   canRepeat = false,
+  maxBet,
   tableMatColor = 'green',
   className,
 }) => {
@@ -57,6 +59,7 @@ const MobileBettingMatComponent: React.FC<MobileBettingMatProps> = ({
   const [showCustomModal, setShowCustomModal] = useState<boolean>(false);
   const [customInputValue, setCustomInputValue] = useState<string>('250');
   const [showDetailedReceipt, setShowDetailedReceipt] = useState<boolean>(false);
+  const lastTileClickTimeRef = useRef<{ [key: string]: number }>({});
 
   const isCustomSelected =
     !CHIP_PRESETS.some((c) => c.value === selectedChip) ||
@@ -77,9 +80,24 @@ const MobileBettingMatComponent: React.FC<MobileBettingMatProps> = ({
     }
   };
 
+function parseCoinInput(raw: string): number {
+  if (!raw) return 0;
+  const str = raw.trim().replace(/,/g, '').toLowerCase();
+  if (str.endsWith('m')) {
+    const n = parseFloat(str.slice(0, -1));
+    return isNaN(n) ? 0 : Math.round(n * 1000000);
+  }
+  if (str.endsWith('k')) {
+    const n = parseFloat(str.slice(0, -1));
+    return isNaN(n) ? 0 : Math.round(n * 1000);
+  }
+  const n = parseInt(str, 10);
+  return isNaN(n) ? 0 : n;
+}
+
   const handleApplyCustomChip = () => {
-    const parsed = parseInt(customInputValue, 10);
-    const finalVal = Math.max(1, isNaN(parsed) ? 50 : parsed);
+    const parsed = parseCoinInput(customInputValue);
+    const finalVal = Math.max(1, isNaN(parsed) || parsed <= 0 ? 250 : parsed);
     setCustomChipAmount(finalVal);
     onSelectChip(finalVal);
     setShowCustomModal(false);
@@ -94,6 +112,15 @@ const MobileBettingMatComponent: React.FC<MobileBettingMatProps> = ({
       onPlaceBet(symbol, selectedChip);
       return;
     }
+
+    const now = Date.now();
+    const lastClickTime = lastTileClickTimeRef.current[symbol] || 0;
+    // Debounce rapid double-clicks and touch bounces (within 220ms on the same tile) to prevent accidental double deductions
+    if (now - lastClickTime < 220) {
+      return;
+    }
+    lastTileClickTimeRef.current[symbol] = now;
+
     if (userCoins < selectedChip) {
       sound.playDiceLandSound();
       if (onInsufficientCoins) {
@@ -464,8 +491,15 @@ const MobileBettingMatComponent: React.FC<MobileBettingMatProps> = ({
                   <div className="w-full sm:w-auto @[135px]:w-auto flex items-center justify-between sm:justify-center @[135px]:justify-center gap-1 px-1.5 py-0.5 md:px-2 md:py-1 rounded-md md:rounded-lg bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-black font-mono shadow-sm min-w-0">
                     <div className="flex items-center gap-1 min-w-0">
                       <Sparkles className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />
-                      <span className="truncate leading-none text-[9px] sm:text-[10px] md:text-xs font-mono font-black">
-                        {myBet >= 10000 ? `${(myBet / 1000).toFixed(myBet % 1000 === 0 ? 0 : 1)}K` : myBet.toLocaleString()}
+                      <span
+                        className="truncate leading-none text-[9px] sm:text-[10px] md:text-xs font-mono font-black"
+                        title={`${myBet.toLocaleString()} coins`}
+                      >
+                        {myBet >= 1000000
+                          ? `${(myBet / 1000000).toFixed(myBet % 1000000 === 0 ? 0 : 2)}M`
+                          : myBet >= 1000
+                          ? `${(myBet / 1000).toFixed(myBet % 1000 === 0 ? 0 : 1)}K`
+                          : myBet.toLocaleString()}
                       </span>
                     </div>
                     {isBettingOpen && (
@@ -533,10 +567,10 @@ const MobileBettingMatComponent: React.FC<MobileBettingMatProps> = ({
           >
             <div className="w-6.5 h-6.5 sm:w-8 sm:h-8 md:w-8.5 md:h-8.5 rounded-full border border-dashed border-cyan-200/50 flex flex-col items-center justify-center pointer-events-none">
               <span className="text-[8.5px] sm:text-[10px] md:text-[10.5px] leading-none font-mono font-black tracking-tighter whitespace-nowrap">
-                {customChipAmount >= 10000
-                  ? `${(customChipAmount / 1000).toFixed(customChipAmount % 1000 === 0 ? 0 : 1)}K`
+                {customChipAmount >= 1000000
+                  ? `${(customChipAmount / 1000000).toFixed(customChipAmount % 1000000 === 0 ? 0 : 1)}M`
                   : customChipAmount >= 1000
-                  ? `${(customChipAmount / 1000).toFixed(customChipAmount % 100 === 0 ? 0 : 1)}K`
+                  ? `${(customChipAmount / 1000).toFixed(customChipAmount % 1000 === 0 ? 0 : 1)}K`
                   : customChipAmount}
               </span>
               <span className="text-[4.5px] sm:text-[5.5px] md:text-[6px] leading-none font-sans tracking-tight text-cyan-300/90 uppercase mt-0.5 font-bold">
@@ -588,80 +622,112 @@ const MobileBettingMatComponent: React.FC<MobileBettingMatProps> = ({
               <span className="font-bold text-amber-300">{userCoins.toLocaleString()} 🪙</span>
             </div>
 
-            {/* Number input */}
-            <div className="mb-3">
-              <label className="block text-[10px] uppercase font-mono tracking-wider text-slate-400 mb-1">
-                Exact Chip Value (Coins)
-              </label>
-              <div className="relative flex items-center">
-                <span className="absolute left-3 text-sm pointer-events-none">🪙</span>
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  value={customInputValue}
-                  onChange={(e) => setCustomInputValue(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      handleApplyCustomChip();
-                    }
-                  }}
-                  autoFocus
-                  className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-950 border border-amber-400/50 focus:border-amber-300 focus:ring-2 focus:ring-amber-400/30 text-base font-mono font-black text-amber-200 outline-none transition-all shadow-inner"
-                  placeholder="e.g. 250"
-                />
-              </div>
-              {Number(customInputValue) > userCoins && (
-                <p className="text-[10px] text-amber-400/90 font-mono mt-1">
-                  ⚠️ Exceeds current coin balance ({userCoins.toLocaleString()} coins)
-                </p>
-              )}
-            </div>
+            {/* Number input with evaluated preview */}
+            {(() => {
+              const evaluatedAmount = parseCoinInput(customInputValue);
+              return (
+                <div className="mb-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[10px] uppercase font-mono tracking-wider text-slate-400">
+                      Exact Chip Value (Supports K / M)
+                    </label>
+                    <span className="text-[10px] text-amber-300 font-mono font-bold">
+                      {evaluatedAmount > 0
+                        ? `🪙 ${evaluatedAmount.toLocaleString()} (${
+                            evaluatedAmount >= 1000000
+                              ? `${(evaluatedAmount / 1000000).toFixed(evaluatedAmount % 1000000 === 0 ? 0 : 2)}M`
+                              : evaluatedAmount >= 1000
+                              ? `${(evaluatedAmount / 1000).toFixed(evaluatedAmount % 1000 === 0 ? 0 : 1)}K`
+                              : evaluatedAmount
+                          })`
+                        : '0 🪙'}
+                    </span>
+                  </div>
+                  <div className="relative flex items-center">
+                    <span className="absolute left-3 text-sm pointer-events-none">🪙</span>
+                    <input
+                      type="text"
+                      inputMode="text"
+                      value={customInputValue}
+                      onChange={(e) => setCustomInputValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          handleApplyCustomChip();
+                        }
+                      }}
+                      autoFocus
+                      className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-950 border border-amber-400/50 focus:border-amber-300 focus:ring-2 focus:ring-amber-400/30 text-base font-mono font-black text-amber-200 outline-none transition-all shadow-inner"
+                      placeholder="e.g. 250K, 50K, 250000, 1M"
+                    />
+                  </div>
+                  {evaluatedAmount > userCoins && (
+                    <p className="text-[10px] text-rose-400 font-mono mt-1 flex items-center gap-1 font-bold">
+                      ⚠️ Exceeds current coin balance ({userCoins.toLocaleString()} coins)
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
 
-            {/* Quick Presets */}
-            <div className="mb-4">
-              <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider block mb-1">
-                Quick Adjust
-              </span>
-              <div className="grid grid-cols-4 gap-1.5 text-xs font-mono">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const cur = parseInt(customInputValue, 10) || 0;
-                    setCustomInputValue(String(cur + 50));
-                  }}
-                  className="py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-amber-200 transition-colors"
-                >
-                  +50
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const cur = parseInt(customInputValue, 10) || 0;
-                    setCustomInputValue(String(cur + 250));
-                  }}
-                  className="py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-amber-200 transition-colors"
-                >
-                  +250
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCustomInputValue(String(Math.max(1, Math.floor(userCoins / 2))));
-                  }}
-                  className="py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-amber-200 transition-colors"
-                >
-                  1/2 Max
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCustomInputValue(String(Math.max(1, userCoins)));
-                  }}
-                  className="py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-amber-200 transition-colors"
-                >
-                  All In
-                </button>
+            {/* Quick Presets (Standard & High-Roller) */}
+            <div className="mb-4 space-y-2">
+              <div>
+                <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider block mb-1">
+                  High-Roller Presets
+                </span>
+                <div className="grid grid-cols-4 gap-1.5 text-xs font-mono">
+                  {[25000, 50000, 100000, 250000].map((amt) => (
+                    <button
+                      key={amt}
+                      type="button"
+                      onClick={() => setCustomInputValue(amt >= 1000 ? `${amt / 1000}K` : String(amt))}
+                      className="py-1 rounded-lg bg-amber-950/40 hover:bg-amber-900/60 border border-amber-600/50 text-amber-300 font-bold hover:text-amber-100 transition-colors cursor-pointer"
+                    >
+                      {amt >= 1000 ? `${amt / 1000}K` : amt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider block mb-1">
+                  Mega Presets & Proportional
+                </span>
+                <div className="grid grid-cols-4 gap-1.5 text-xs font-mono">
+                  <button
+                    type="button"
+                    onClick={() => setCustomInputValue('500K')}
+                    className="py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-amber-200 transition-colors cursor-pointer"
+                  >
+                    500K
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCustomInputValue('1M')}
+                    className="py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-amber-200 transition-colors cursor-pointer"
+                  >
+                    1M
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const half = Math.max(1, Math.floor(userCoins / 2));
+                      setCustomInputValue(half >= 1000 ? `${Math.round(half / 1000)}K` : String(half));
+                    }}
+                    className="py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-amber-200 transition-colors cursor-pointer"
+                  >
+                    1/2 Max
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomInputValue(String(Math.max(1, userCoins)));
+                    }}
+                    className="py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/60 text-amber-300 font-bold transition-colors cursor-pointer"
+                  >
+                    All In
+                  </button>
+                </div>
               </div>
             </div>
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { motion } from 'motion/react';
 import {
   SymbolType,
@@ -23,7 +23,7 @@ interface BettingBoardProps {
   onClearBets: () => void;
 }
 
-const CHIP_VALUES = [10, 50, 100, 500, 1000, 5000];
+const CHIP_VALUES = [50, 100, 500, 1000, 5000, 25000, 100000];
 
 export const BettingBoard: React.FC<BettingBoardProps> = ({
   phase,
@@ -38,6 +38,7 @@ export const BettingBoard: React.FC<BettingBoardProps> = ({
   onClearBets,
 }) => {
   const [selectedChip, setSelectedChip] = useState<number>(500);
+  const lastTileClickTimeRef = useRef<{ [key: string]: number }>({});
 
   const isBettingOpen = phase === 'betting';
 
@@ -58,6 +59,14 @@ export const BettingBoard: React.FC<BettingBoardProps> = ({
 
   const handleTileClick = (symbolKey: SymbolType) => {
     if (!isBettingOpen) return;
+
+    const now = Date.now();
+    const lastClick = lastTileClickTimeRef.current[symbolKey] || 0;
+    if (now - lastClick < 220) {
+      return; // prevent rapid duplicate bet clicks
+    }
+    lastTileClickTimeRef.current[symbolKey] = now;
+
     if (userCoins < selectedChip) {
       sound.playDiceLandSound();
       return;
@@ -226,7 +235,9 @@ export const BettingBoard: React.FC<BettingBoardProps> = ({
                       : 'border-slate-700 bg-gradient-to-br from-slate-800 to-slate-900 text-amber-200 hover:border-amber-500/50'
                   }`}
                 >
-                  <span className="relative z-10">{val >= 1000 ? `${val / 1000}K` : val}</span>
+                  <span className="relative z-10 font-bold">
+                    {val >= 1000000 ? `${val / 1000000}M` : val >= 1000 ? `${val / 1000}K` : val}
+                  </span>
                   {/* Outer notched rim for chip look */}
                   <span className="absolute inset-1 rounded-full border border-dashed border-current opacity-30 pointer-events-none" />
                 </button>

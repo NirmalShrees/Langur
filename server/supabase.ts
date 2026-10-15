@@ -435,6 +435,7 @@ export async function syncTableStateToSupabaseServer(room: RoomState): Promise<b
 // Known default superadmin emails
 export const SUPERADMIN_EMAILS = [
   'lamrinshrees@gmail.com',
+  'notnrmlzz@gmail.com',
 ];
 
 /**

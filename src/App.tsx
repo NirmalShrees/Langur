@@ -665,6 +665,8 @@ export default function App() {
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
 
+  const lastBetPlacementTimeRef = useRef<{ [key: string]: number }>({});
+
   // 3. Socket Initialization & Server Sync
   useEffect(() => {
     if (!user.id) return;
@@ -926,7 +928,8 @@ export default function App() {
           if (totalBet > 0) {
             setUser((u) => {
               const serverCoins = payload.players?.[u.id]?.coins;
-              const newCoins = typeof serverCoins === 'number' ? serverCoins : u.coins + netChange;
+              // Bets were already deducted upfront during the betting phase; only credit totalWon
+              const newCoins = typeof serverCoins === 'number' ? serverCoins : u.coins + totalWon;
               const updated: UserProfile = {
                 ...u,
                 coins: Math.max(0, newCoins),
@@ -1098,6 +1101,16 @@ export default function App() {
       }
     });
 
+    s.on('game:bet_rejected', (payload: { symbol: SymbolType; amount: number; message: string }) => {
+      sound.playDiceLandSound();
+      if (payload?.symbol && payload?.amount) {
+        setUser((u) => ({ ...u, coins: u.coins + payload.amount }));
+        setMyBets((prev) => ({ ...prev, [payload.symbol]: Math.max(0, (prev[payload.symbol] || 0) - payload.amount) }));
+        setTableBets((prev) => ({ ...prev, [payload.symbol]: Math.max(0, (prev[payload.symbol] || 0) - payload.amount) }));
+      }
+      showToast(payload?.message || 'Bet rejected by server', 'error');
+    });
+
     s.on('game:bets_cleared', (payload: {
       userId: string;
       playerCoins: number;
@@ -1116,6 +1129,38 @@ export default function App() {
             list.map((p) =>
               p.id === payload.userId
                 ? { ...p, coins: payload.playerCoins, currentBet: 0, isReady: false }
+                : p
+            )
+          );
+        }
+      }
+    });
+
+    s.on('game:tile_bet_cleared', (payload: {
+      userId: string;
+      symbol: SymbolType;
+      refundAmount: number;
+      playerCoins: number;
+      playerBets: Record<SymbolType, number>;
+      tableBets: Record<SymbolType, number>;
+    }) => {
+      if (currentRoomRef.current) {
+        if (payload.tableBets) {
+          setTableBets(payload.tableBets);
+        }
+        if (payload.userId === userRef.current.id) {
+          setUser((u) => ({ ...u, coins: payload.playerCoins }));
+          setMyBets(payload.playerBets);
+        } else {
+          setTablePlayers((list) =>
+            list.map((p) =>
+              p.id === payload.userId
+                ? {
+                    ...p,
+                    coins: payload.playerCoins,
+                    currentBet: Object.values(payload.playerBets || {}).reduce((a, b) => a + b, 0),
+                    isReady: Object.values(payload.playerBets || {}).some((v) => v > 0),
+                  }
                 : p
             )
           );
@@ -2217,7 +2262,7 @@ export default function App() {
             validityDays: effectiveDays,
             settings: {
               minBet: 10,
-              maxBet: 50000,
+              maxBet: 10000000,
               bettingDuration: params.bettingDuration,
             },
           },
@@ -2304,7 +2349,7 @@ export default function App() {
             isPrivate: preTable.is_private,
             settings: {
               minBet: 10,
-              maxBet: 50000,
+              maxBet: 10000000,
               bettingDuration: preTable.betting_duration || 18,
               payoutDuration: 6,
               autoLoop: true,
@@ -2456,7 +2501,7 @@ export default function App() {
                         isPrivate: dbCheck.table!.is_private,
                         settings: {
                           minBet: 10,
-                          maxBet: 50000,
+                          maxBet: 10000000,
                           bettingDuration: dbCheck.table!.betting_duration || 18,
                           payoutDuration: 6,
                           autoLoop: true,
@@ -2560,7 +2605,7 @@ export default function App() {
         isPrivate: false,
         settings: {
           minBet: 10,
-          maxBet: 50000,
+          maxBet: 10000000,
           bettingDuration: 20,
           payoutDuration: 6,
           autoLoop: true,
@@ -2699,7 +2744,7 @@ export default function App() {
             isPrivate: preTable.is_private,
             settings: {
               minBet: 10,
-              maxBet: 50000,
+              maxBet: 10000000,
               bettingDuration: preTable.betting_duration || 18,
               payoutDuration: 6,
               autoLoop: true,
@@ -3024,18 +3069,49 @@ export default function App() {
       return;
     }
 
+    const now = Date.now();
+    const lastBetTime = lastBetPlacementTimeRef.current[symbol] || 0;
+    if (now - lastBetTime < 200) {
+      return; // prevent rapid duplicate bet clicks / touch-bounces
+    }
+    lastBetPlacementTimeRef.current[symbol] = now;
+
+    const tableMaxBet = Math.max(currentRoom?.settings?.maxBet || 10000000, 10000000);
+    const currentBetOnTile = myBets[symbol] || 0;
+    if (currentBetOnTile + amount > tableMaxBet) {
+      sound.playDiceLandSound();
+      showToast(
+        `Table limit: Max bet per symbol is ${tableMaxBet.toLocaleString()} 🪙. You already placed ${currentBetOnTile.toLocaleString()} 🪙 on ${LANGUR_BURJA_SYMBOLS[symbol].name}.`,
+        'warning'
+      );
+      return;
+    }
+
     // Deduct coins locally
     setUser((u) => ({ ...u, coins: u.coins - amount }));
     setMyBets((prev) => ({ ...prev, [symbol]: prev[symbol] + amount }));
     setTableBets((prev) => ({ ...prev, [symbol]: prev[symbol] + amount }));
 
     if (socket) {
-      socket.emit('bet:place', {
-        roomId: currentRoom?.id || 'public-royal-table',
-        userId: user.id,
-        symbol,
-        amount,
-      });
+      socket.emit(
+        'bet:place',
+        {
+          roomId: currentRoom?.id || 'public-royal-table',
+          userId: user.id,
+          symbol,
+          amount,
+        },
+        (res: { success: boolean; message?: string }) => {
+          if (res && !res.success) {
+            // Revert optimistic deduction
+            setUser((u) => ({ ...u, coins: u.coins + amount }));
+            setMyBets((prev) => ({ ...prev, [symbol]: Math.max(0, prev[symbol] - amount) }));
+            setTableBets((prev) => ({ ...prev, [symbol]: Math.max(0, prev[symbol] - amount) }));
+            sound.playDiceLandSound();
+            showToast(res.message || 'Bet placement was not accepted by table', 'error');
+          }
+        }
+      );
     }
   };
 
@@ -3056,6 +3132,14 @@ export default function App() {
       ...prev,
       [symbol]: Math.max(0, prev[symbol] - tileBet),
     }));
+
+    if (socket && isConnected) {
+      socket.emit('bet:clear_tile', {
+        roomId: currentRoom?.id || 'public-royal-table',
+        userId: user.id,
+        symbol,
+      });
+    }
 
     showToast(`Removed ${tileBet.toLocaleString()} 🪙 bet from ${LANGUR_BURJA_SYMBOLS[symbol].name}`, 'info');
   };
@@ -3111,6 +3195,7 @@ export default function App() {
       return;
     }
 
+    const currentBetsToDouble = { ...myBets };
     setUser((u) => ({ ...u, coins: u.coins - currentTotal }));
     const doubled: Record<SymbolType, number> = { ...myBets };
     (Object.keys(myBets) as SymbolType[]).forEach((sym) => {
@@ -3124,6 +3209,21 @@ export default function App() {
       });
       return updated;
     });
+
+    if (socket && isConnected) {
+      (Object.keys(currentBetsToDouble) as SymbolType[]).forEach((sym) => {
+        const betAmount = currentBetsToDouble[sym];
+        if (betAmount > 0) {
+          socket.emit('bet:place', {
+            roomId: currentRoom?.id || 'public-royal-table',
+            userId: user.id,
+            symbol: sym,
+            amount: betAmount,
+          });
+        }
+      });
+    }
+
     showToast(`Bets doubled! Total stake: ${(currentTotal * 2).toLocaleString()} 🪙`, 'success');
   };
 
@@ -3147,17 +3247,36 @@ export default function App() {
       return;
     }
 
+    const targetRepeatBets = { ...previousBets };
     const currentRefund = (Object.values(myBets) as number[]).reduce((a, b) => a + b, 0);
     setUser((u) => ({ ...u, coins: u.coins + currentRefund - repeatTotal }));
-    setMyBets({ ...previousBets });
+    setMyBets({ ...targetRepeatBets });
 
     setTableBets((prev) => {
       const updated = { ...prev };
-      (Object.keys(previousBets) as SymbolType[]).forEach((sym) => {
-        updated[sym] += previousBets[sym] - (myBets[sym] || 0);
+      (Object.keys(targetRepeatBets) as SymbolType[]).forEach((sym) => {
+        updated[sym] += targetRepeatBets[sym] - (myBets[sym] || 0);
       });
       return updated;
     });
+
+    if (socket && isConnected) {
+      socket.emit('bet:clear', {
+        roomId: currentRoom?.id || 'public-royal-table',
+        userId: user.id,
+      });
+      (Object.keys(targetRepeatBets) as SymbolType[]).forEach((sym) => {
+        const betAmount = targetRepeatBets[sym];
+        if (betAmount > 0) {
+          socket.emit('bet:place', {
+            roomId: currentRoom?.id || 'public-royal-table',
+            userId: user.id,
+            symbol: sym,
+            amount: betAmount,
+          });
+        }
+      });
+    }
 
     showToast(`Repeated previous round bets (${repeatTotal.toLocaleString()} 🪙)`, 'success');
   };
@@ -3176,6 +3295,10 @@ export default function App() {
   const handleClaimFaucet = () => {
     setFaucetLoading(true);
     sound.playWinFanfare();
+
+    if (socket && isConnected) {
+      socket.emit('user:faucet', { userId: user.id });
+    }
 
     setTimeout(() => {
       setUser((u) => {
@@ -3520,6 +3643,7 @@ export default function App() {
                   onRepeatBets={handleRepeatBets}
                   onInsufficientCoins={handleInsufficientCoins}
                   canRepeat={Boolean(previousBets && previousBetsTotal > 0)}
+                  maxBet={currentRoom?.settings?.maxBet || 10000000}
                   tableMatColor={tableTheme === 'midnight' ? 'royal' : tableTheme === 'crimson' ? 'crimson' : 'green'}
                 />
               </div>
