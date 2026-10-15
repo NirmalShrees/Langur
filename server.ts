@@ -1413,6 +1413,12 @@ async function startServer() {
 
     socket.on('user:faucet', (payload: { userId: string }, callback) => {
       const result = db.claimFaucet(payload.userId);
+      if (result.success && currentRoomId) {
+        const room = gameEngine.getRoom(currentRoomId);
+        if (room && room.players[payload.userId]) {
+          room.players[payload.userId].coins = result.newBalance;
+        }
+      }
       if (typeof callback === 'function') {
         callback(result);
       }
@@ -1643,6 +1649,13 @@ async function startServer() {
 
     socket.on('bet:clear', (payload: { roomId: string; userId: string }, callback) => {
       const result = gameEngine.clearBets(payload.roomId, payload.userId);
+      if (typeof callback === 'function') {
+        callback(result);
+      }
+    });
+
+    socket.on('bet:clear_tile', (payload: { roomId: string; userId: string; symbol: any }, callback) => {
+      const result = gameEngine.clearTileBet(payload.roomId, payload.userId, payload.symbol);
       if (typeof callback === 'function') {
         callback(result);
       }
