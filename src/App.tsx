@@ -2301,7 +2301,7 @@ export default function App() {
                 }
               }
 
-              // Persist running table & private code in Supabase game_tables
+              // Persist running table & private code in Supabase game_tables_data
               await syncTableStateToSupabase(res.room);
 
               showToast(`Table created! Share code: ${res.room.code}`, 'success');

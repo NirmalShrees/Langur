@@ -27,6 +27,10 @@ import {
   fetchPendingTableRequestsFromSupabase,
   saveTableToSupabaseSafe,
   syncTableStateToSupabaseServer,
+  PRIMARY_TABLE,
+  normalizeTableRecord,
+  isNonRegisteredId,
+  isRealRegisteredPlayer,
 } from './server/supabase.js';
 
 async function startServer() {
@@ -186,24 +190,21 @@ async function startServer() {
       const remoteProfiles = await fetchAllProfilesForAdmin();
       const localUsers = db.getAllUsers();
 
-      const isBotId = (id: string) => {
-        if (!id) return true;
-        const lower = id.toLowerCase();
-        return (
-          lower.startsWith('bot_') ||
-          lower.startsWith('patron_') ||
-          lower.startsWith('smart_') ||
-          lower.startsWith('seed-') ||
-          lower.startsWith('seed_') ||
-          lower.startsWith('ai_') ||
-          lower.startsWith('bot-')
-        );
+      const isExcludedPlayer = (p: any) => {
+        if (!p || !p.id) return true;
+        if (isNonRegisteredId(p.id)) return true;
+        const username = String(p.username || '').trim().toLowerCase();
+        if ((username === 'festival player' || username === 'festival patron' || username === 'guest') && !p.email) return true;
+        if (username === '[purged]' || username.includes('purged')) return true;
+        const stats = typeof p.stats === 'object' && p.stats !== null ? p.stats : {};
+        if (p.isBot || p.is_bot || stats.is_deleted || stats.is_dummy || stats.isBot) return true;
+        return false;
       };
 
       const mergedMap = new Map<string, any>();
 
       for (const u of localUsers) {
-        if (isBotId(u.id)) continue;
+        if (isExcludedPlayer(u)) continue;
         mergedMap.set(u.id, {
           id: u.id,
           username: u.username,
@@ -222,7 +223,7 @@ async function startServer() {
       }
 
       for (const p of remoteProfiles) {
-        if (isBotId(p.id)) continue;
+        if (isExcludedPlayer(p)) continue;
         const existing = mergedMap.get(p.id) || {};
         const stats = typeof p.stats === 'object' && p.stats !== null ? p.stats : {};
         const cleanEmail = p.email ? p.email.toLowerCase().trim() : undefined;
@@ -237,7 +238,7 @@ async function startServer() {
         mergedMap.set(p.id, {
           ...existing,
           id: p.id,
-          username: p.username || existing.username || 'Festival Player',
+          username: p.username || existing.username || (cleanEmail ? cleanEmail.split('@')[0] : 'Player'),
           avatar: p.avatar || existing.avatar || '🎲',
           email: p.email || existing.email,
           coins: typeof p.coins === 'number' ? p.coins : (existing.coins || 0),
@@ -367,24 +368,29 @@ async function startServer() {
       // 2. Query Supabase for persistent game tables not currently active in memory
       const sb = getSupabaseServerClient();
       if (sb) {
-        const { data: dbTables } = await sb
-          .from('game_tables')
-          .select('*')
-          .order('updated_at', { ascending: false });
+        const processedIds = new Set<string>();
 
-        if (dbTables && Array.isArray(dbTables)) {
-          for (const dt of dbTables) {
-            if (dt.id && !memoryRoomIds.has(dt.id)) {
-              const statsArr = Array.isArray(dt.player_stats) ? dt.player_stats : [];
-              const playersArr = Array.isArray(dt.players) ? dt.players : [];
-              const pList = statsArr.length > 0 ? statsArr : playersArr;
+        // Query PRIMARY_TABLE: game_tables_data
+        try {
+          const { data: primaryTables } = await sb
+            .from(PRIMARY_TABLE)
+            .select('*')
+            .neq('status', 'closed')
+            .order('updated_at', { ascending: false });
 
-              const isSystemDb = dt.id === 'public-royal-table' || dt.code === 'ROYAL1' || dt.host_id === 'system_host' || dt.host_id === 'system';
-              const explicitAdminDb =
-                dt.approved_by_admin_name ||
-                dt.approvedByAdminName ||
-                dt.approval_meta?.admin_name ||
-                dt.approvalMeta?.admin_name;
+          if (primaryTables && Array.isArray(primaryTables)) {
+            for (const raw of primaryTables) {
+              const dt = normalizeTableRecord(raw);
+              if (!dt || !dt.id || memoryRoomIds.has(dt.id)) continue;
+              if (dt.id === 'public-royal-table' || dt.status === 'closed' || dt.approval_status === 'declined') continue;
+
+              const isApproved = dt.approval_status === 'approved' || dt.approved === true;
+              if (!isApproved) continue;
+
+              processedIds.add(dt.id);
+              const pList = Array.isArray(dt.player_stats) ? dt.player_stats : [];
+              const isSystemDb = dt.id === 'public-royal-table' || dt.code === 'ROYAL1' || dt.host_id === 'system';
+              const adminName = dt.approval_meta?.admin_name;
 
               allRooms.push({
                 id: dt.id,
@@ -410,20 +416,22 @@ async function startServer() {
                 })),
                 tableBets: { jhanda: 0, burja: 0, itta: 0, paan: 0, hukum: 0, chidi: 0 },
                 totalRoundBets: 0,
-                avar: dt.avar ?? dt.settings?.avar ?? 50,
+                avar: 50,
                 inMemory: false,
                 status: dt.status || 'waiting',
-                approvalStatus: dt.approval_status || (dt.approved ? 'approved' : 'pending'),
+                approvalStatus: 'approved',
                 approvalMeta: dt.approval_meta || {},
-                approvedByAdminName: explicitAdminDb,
-                approved_by_admin_name: explicitAdminDb,
-                adminApprovalMessage: dt.admin_approval_message || dt.approval_meta?.message,
+                approvedByAdminName: adminName,
+                approved_by_admin_name: adminName,
+                adminApprovalMessage: dt.approval_meta?.message,
                 expiresAt: dt.expires_at,
                 createdAt: dt.created_at,
                 isSystemGenerated: isSystemDb,
               });
             }
           }
+        } catch (pErr) {
+          console.warn(`[Server] ${PRIMARY_TABLE} fetchAdminTablesSnapshot notice:`, pErr);
         }
       }
     } catch (err) {
@@ -465,9 +473,9 @@ async function startServer() {
       if (currentLocal && typeof currentLocal.coins === 'number') {
         currentCoins = currentLocal.coins;
       } else {
-        // Query Supabase for authoritative current coins
+        // Query Supabase for authoritative current coins (only for real registered accounts)
         const sbClient = getSupabaseServerClient();
-        if (sbClient) {
+        if (sbClient && !isNonRegisteredId(targetUserId)) {
           const { data: remoteData } = await sbClient
             .from('profiles')
             .select('coins, username, avatar')
@@ -668,7 +676,7 @@ async function startServer() {
         createdAt: Date.now(),
       };
 
-      // 1. Immediately create pending table entry in Supabase game_tables with approval_status: 'pending'
+      // 1. Immediately create pending table entry in Supabase game_tables_data with approval_status: 'pending'
       // Timer does NOT start now; expires_at remains null until admin approval!
       const pendingTableRecord = {
         id: roomId,
@@ -691,10 +699,10 @@ async function startServer() {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
-      saveTableToSupabaseSafe(pendingTableRecord).catch(() => {});
+      await saveTableToSupabaseSafe(pendingTableRecord).catch((e) => console.warn('[Server] Supabase save pending table error:', e));
 
       pendingTableRequests.set(requestId, requestObj);
-      saveTableRequestToSupabase(requestObj).catch(() => {});
+      await saveTableRequestToSupabase(requestObj).catch((e) => console.warn('[Server] Supabase save table request error:', e));
 
       console.log(`[Table Approval Request] User ${cleanName} (${userId}) requested table '${cleanTableName}' (${roomCode}) for ${hours} hours. Timer is paused/not started until approval.`);
 
@@ -731,12 +739,39 @@ async function startServer() {
   app.get('/api/admin/table-requests', async (req, res) => {
     try {
       const supabaseRequests = await fetchPendingTableRequestsFromSupabase();
+      const freshMap = new Map<string, any>();
+
+      // 1. Authoritative requests from Supabase
       for (const r of supabaseRequests) {
-        if (!pendingTableRequests.has(r.id)) {
-          pendingTableRequests.set(r.id, r);
+        freshMap.set(r.id, r);
+        if (r.tableId) freshMap.set(r.tableId, r);
+      }
+
+      // 2. Merge pending in-memory requests if not yet in Supabase
+      for (const [id, reqItem] of pendingTableRequests.entries()) {
+        const isStillPending =
+          reqItem.status === 'pending' ||
+          reqItem.status === 'pending_approval' ||
+          reqItem.approval_status === 'pending';
+        if (isStillPending && !freshMap.has(id) && !freshMap.has(reqItem.tableId)) {
+          freshMap.set(id, reqItem);
         }
       }
-      const allPending = Array.from(pendingTableRequests.values()).filter((r) => r.status === 'pending');
+
+      // 3. Keep in-memory cache in sync with active pending
+      pendingTableRequests.clear();
+      for (const item of freshMap.values()) {
+        pendingTableRequests.set(item.id, item);
+      }
+
+      const allPending = Array.from(new Set(freshMap.values())).filter(
+        (r) =>
+          r.status === 'pending' ||
+          r.status === 'pending_approval' ||
+          r.approval_status === 'pending' ||
+          !r.approved
+      );
+
       res.json({ success: true, requests: allPending });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || 'Failed fetching table requests' });
@@ -781,32 +816,39 @@ async function startServer() {
         }
       }
 
-      // 2. Query Supabase game_tables for user
+      // 2. Query Supabase PRIMARY_TABLE (game_tables_data) for user
       const sbClient = getSupabaseServerClient();
       if (sbClient) {
-        const { data: dbTables, error } = await sbClient
-          .from('game_tables')
-          .select('*')
-          .eq('host_id', userId)
-          .neq('status', 'closed')
-          .order('created_at', { ascending: false });
+        try {
+          const { data: primaryData } = await sbClient
+            .from(PRIMARY_TABLE)
+            .select('*')
+            .neq('status', 'closed')
+            .order('created_at', { ascending: false });
 
-        if (!error && Array.isArray(dbTables)) {
-          for (const t of dbTables) {
-            const isPending = t.approval_status === 'pending' || t.status === 'pending_approval' || t.approved === false;
-            if (isPending) {
-              t.expires_at = null;
-            } else if (t.expires_at && new Date(t.expires_at).getTime() <= nowMs) {
-              continue;
-            }
-            if (!tablesMap.has(t.id)) {
-              tablesMap.set(t.id, t);
-            } else {
-              // Merge table details preserving in-memory player count if running
-              const existing = tablesMap.get(t.id);
-              tablesMap.set(t.id, { ...t, ...existing, expires_at: isPending ? null : (existing.expires_at || t.expires_at) });
+          if (primaryData && Array.isArray(primaryData)) {
+            for (const raw of primaryData) {
+              const t = normalizeTableRecord(raw);
+              if (!t || !t.id) continue;
+              if (t.host_id !== userId && (raw.config?.host?.id !== userId)) continue;
+
+              const isPending = t.approval_status === 'pending' || t.status === 'pending_approval' || t.approved === false;
+              if (isPending) {
+                t.expires_at = undefined;
+              } else if (t.expires_at && new Date(t.expires_at).getTime() <= nowMs) {
+                continue;
+              }
+
+              if (!tablesMap.has(t.id)) {
+                tablesMap.set(t.id, t);
+              } else {
+                const existing = tablesMap.get(t.id);
+                tablesMap.set(t.id, { ...t, ...existing, expires_at: isPending ? undefined : (existing.expires_at || t.expires_at) });
+              }
             }
           }
+        } catch (pErr) {
+          console.warn(`[Server] ${PRIMARY_TABLE} user tables notice:`, pErr);
         }
       }
 
@@ -934,7 +976,7 @@ async function startServer() {
         (gameEngine as any).rooms.set(roomId, newRoomState);
         (gameEngine as any).startRoomLoop(roomId);
 
-        // 2. Persist to Supabase game_tables with approval_status: 'approved' and approval_meta
+        // 2. Persist to Supabase game_tables_data with approval_status: 'approved' and approval_meta
         createdTableRecord = {
           id: roomId,
           code: roomCode,
@@ -962,22 +1004,15 @@ async function startServer() {
 
         await saveTableToSupabaseSafe(createdTableRecord);
       } else {
-        // If declined, update Supabase game_tables entry to declined/closed
+        // If declined, update Supabase entry in game_tables_data to closed
         if (reqItem.tableId) {
           const sbClient = getSupabaseServerClient();
           if (sbClient) {
             try {
               await sbClient
-                .from('game_tables')
+                .from(PRIMARY_TABLE)
                 .update({
-                  approval_status: 'declined',
                   status: 'closed',
-                  approval_meta: {
-                    admin_id: adminId,
-                    admin_name: cleanAdminName,
-                    message: cleanAdminMsg,
-                    declined_at: new Date().toISOString(),
-                  },
                   updated_at: new Date().toISOString(),
                 })
                 .eq('id', reqItem.tableId);
@@ -1004,7 +1039,7 @@ async function startServer() {
 
       // Persist notification to requester profile in Supabase
       const sbClient = getSupabaseServerClient();
-      if (sbClient && reqItem.userId) {
+      if (sbClient && reqItem.userId && !isNonRegisteredId(reqItem.userId)) {
         try {
           const { data: prof } = await sbClient
             .from('profiles')
@@ -1113,8 +1148,10 @@ async function startServer() {
         // Direct delete fallback with Supabase server client
         const sb = getSupabaseServerClient();
         if (sb) {
-          await sb.from('game_tables').delete().eq('id', roomId);
-          await sb.from('game_tables').delete().eq('code', roomId);
+          try {
+            await sb.from(PRIMARY_TABLE).delete().eq('id', roomId);
+            await sb.from(PRIMARY_TABLE).delete().eq('code', roomId);
+          } catch {}
         }
 
         await gameEngine.purgeZeroPlayerTables();
@@ -1138,8 +1175,10 @@ async function startServer() {
       
       const sb = getSupabaseServerClient();
       if (sb) {
-        await sb.from('game_tables').delete().eq('id', roomId);
-        await sb.from('game_tables').delete().eq('code', roomId);
+        try {
+          await sb.from(PRIMARY_TABLE).delete().eq('id', roomId);
+          await sb.from(PRIMARY_TABLE).delete().eq('code', roomId);
+        } catch {}
       }
 
       await gameEngine.purgeZeroPlayerTables();
@@ -1272,16 +1311,16 @@ async function startServer() {
           }
         }
       } else {
-        // Airdrop to all registered profiles in Supabase & memory
+        // Airdrop to all registered profiles in Supabase & memory (never bots/guests/placeholders)
         const remoteProfiles = await fetchAllProfilesForAdmin();
-        const localUsers = db.getAllUsers();
+        const localUsers = db.getAllUsers().filter((u) => isRealRegisteredPlayer(u));
         const allUserIds = new Set<string>([
           ...remoteProfiles.map((p) => p.id),
           ...localUsers.map((u) => u.id),
         ]);
 
         for (const userId of allUserIds) {
-          const user = db.getUser(userId) || { coins: 0 };
+          if (isNonRegisteredId(userId)) continue;
           const resAdj = db.adminAdjustCoins(userId, coinAmount, adminId, reason);
           const receipt = {
             ...receiptTemplate,
@@ -1453,7 +1492,7 @@ async function startServer() {
         let canCreate = Boolean(u.canCreateTable || u.can_create_table);
         let validityHours = payload.validityHours || (payload.validityDays ? payload.validityDays * 24 : 24);
 
-        if (u.id) {
+        if (u.id && !isNonRegisteredId(u.id)) {
           const sb = getSupabaseServerClient();
           if (sb) {
             const { data: prof } = await sb
@@ -1948,7 +1987,7 @@ async function startServer() {
   }
 
   // Automatic Background Table Cleanup:
-  // Sweeps every 5 minutes to automatically delete expired tables from GameEngine memory and Supabase game_tables
+  // Sweeps every 5 minutes to automatically delete expired tables from GameEngine memory and Supabase game_tables_data
   setInterval(async () => {
     try {
       const nowMs = Date.now();
@@ -1969,13 +2008,13 @@ async function startServer() {
         }
       }
 
-      // 2. Direct Supabase game_tables expiration check
+      // 2. Direct Supabase expiration check for PRIMARY_TABLE (game_tables_data)
       if (sb) {
         const nowIso = new Date().toISOString();
-        // Delete any expired tables
-        await sb.from('game_tables').delete().not('expires_at', 'is', null).lte('expires_at', nowIso);
-        // Delete closed tables
-        await sb.from('game_tables').delete().eq('status', 'closed');
+        try {
+          await sb.from(PRIMARY_TABLE).delete().not('expires_at', 'is', null).lte('expires_at', nowIso);
+          await sb.from(PRIMARY_TABLE).delete().eq('status', 'closed');
+        } catch {}
       }
     } catch (e) {
       // quiet background notice

@@ -539,6 +539,21 @@ export class GameEngine {
     const room = this.rooms.get(roomId);
     if (!room) return { success: false, message: 'Room does not exist' };
 
+    const joinIdLower = String(user?.id || '').toLowerCase();
+    if (
+      !joinIdLower ||
+      joinIdLower.startsWith('patron_') ||
+      joinIdLower.startsWith('bot_') ||
+      joinIdLower.startsWith('bot-') ||
+      joinIdLower.startsWith('smart_') ||
+      joinIdLower.startsWith('seed-') ||
+      joinIdLower.startsWith('seed_') ||
+      joinIdLower.startsWith('ai_') ||
+      joinIdLower.startsWith('system')
+    ) {
+      return { success: false, message: 'Bot or system accounts cannot join as human players.' };
+    }
+
     // Remove user from any OTHER table they may currently be in so they are free to join this table
     for (const [otherRoomId, otherRoom] of this.rooms.entries()) {
       if (otherRoomId !== roomId && otherRoom.players[user.id]) {

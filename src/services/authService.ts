@@ -14,12 +14,54 @@ const GUEST_ID_KEY = 'langur_burja_uid';
 
 export { isSupabaseConfigured };
 
+export function isNonRegisteredProfileId(userId?: string | null): boolean {
+  if (!userId) return true;
+  const idLower = String(userId).trim().toLowerCase();
+  if (!idLower) return true;
+  return (
+    idLower.startsWith('guest_') ||
+    idLower.startsWith('user_') ||
+    idLower.startsWith('bot_') ||
+    idLower.startsWith('bot-') ||
+    idLower.startsWith('patron_') ||
+    idLower.startsWith('smart_') ||
+    idLower.startsWith('seed-') ||
+    idLower.startsWith('seed_') ||
+    idLower.startsWith('ai_') ||
+    idLower.startsWith('system')
+  );
+}
+
+export function isNonRegisteredProfile(profile: any): boolean {
+  if (!profile || !profile.id) return true;
+  if (profile.isGuest || profile.isBot || profile.is_bot) return true;
+  if (isNonRegisteredProfileId(profile.id)) return true;
+
+  const email = typeof profile.email === 'string' ? profile.email.trim() : '';
+  if (!email || !email.includes('@')) return true;
+
+  const usernameLower = String(profile.username || '').trim().toLowerCase();
+  if (
+    usernameLower === 'festival player' ||
+    usernameLower === 'festival patron' ||
+    usernameLower === '[purged]' ||
+    usernameLower.includes('purged')
+  ) {
+    return true;
+  }
+
+  const stats = typeof profile.stats === 'object' && profile.stats !== null ? profile.stats : {};
+  if (stats.isBot || stats.is_dummy || stats.is_deleted) return true;
+
+  return false;
+}
+
 /**
  * Fetch notifications for a user from Supabase profiles.notifications column
  */
 export async function fetchRemoteNotifications(userId: string): Promise<AppNotification[] | null> {
   if (!supabase || !isSupabaseConfigured() || !userId) return null;
-  if (userId.startsWith('guest_')) return null;
+  if (isNonRegisteredProfileId(userId)) return null;
 
   try {
     const { data, error } = await supabase
@@ -43,7 +85,7 @@ export async function fetchRemoteNotifications(userId: string): Promise<AppNotif
 
 /**
  * Syncs notifications array to Supabase profiles.notifications column
- * Uses both dedicated server endpoint (bypasses RLS) and client Supabase client for complete reliability.
+ * Uses both dedicated server endpoint and client Supabase client for complete reliability.
  */
 export async function syncNotificationsToSupabase(
   userId: string,
@@ -51,7 +93,7 @@ export async function syncNotificationsToSupabase(
 ): Promise<{ success: boolean; error?: string }> {
   saveNotifications(notifications);
 
-  if (!userId || userId.startsWith('guest_')) {
+  if (!userId || isNonRegisteredProfileId(userId)) {
     return { success: true };
   }
 
@@ -104,7 +146,7 @@ export async function deleteNotificationFromSupabase(
 ): Promise<void> {
   saveNotifications(remainingNotifications);
 
-  if (!userId || userId.startsWith('guest_')) return;
+  if (!userId || isNonRegisteredProfileId(userId)) return;
 
   // 1. Trigger backend server deletion
   try {
@@ -138,7 +180,7 @@ export async function deleteNotificationFromSupabase(
 export async function clearAllNotificationsFromSupabase(userId: string): Promise<void> {
   saveNotifications([]);
 
-  if (!userId || userId.startsWith('guest_')) return;
+  if (!userId || isNonRegisteredProfileId(userId)) return;
 
   // 1. Trigger backend server clear
   try {
@@ -172,7 +214,7 @@ export async function clearAllNotificationsFromSupabase(userId: string): Promise
  */
 export async function fetchRemoteCoinHistory(userId: string): Promise<CoinReceipt[] | null> {
   if (!supabase || !isSupabaseConfigured() || !userId) return null;
-  if (userId.startsWith('guest_')) return null;
+  if (isNonRegisteredProfileId(userId)) return null;
 
   try {
     const { data, error } = await supabase
@@ -203,8 +245,8 @@ export async function fetchRemoteCoinHistory(userId: string): Promise<CoinReceip
 /**
  * Creates default fallback profile template
  */
-export function createDefaultProfile(id?: string, username = 'Festival Player'): UserProfile {
-  const generatedId = id || `user_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`;
+export function createDefaultProfile(id?: string, username = 'Guest'): UserProfile {
+  const generatedId = id || `guest_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`;
   return {
     id: generatedId,
     username,
@@ -221,8 +263,8 @@ export function createDefaultProfile(id?: string, username = 'Festival Player'):
       title: 'Dice Novice',
     },
     createdAt: Date.now(),
-    isGuest: false,
-    authProvider: 'email',
+    isGuest: true,
+    authProvider: 'guest',
   };
 }
 
@@ -268,6 +310,7 @@ export function saveLocalProfile(profile: UserProfile): void {
  */
 export async function fetchRemoteProfile(userId: string): Promise<UserProfile | null> {
   if (!supabase || !isSupabaseConfigured() || !userId) return null;
+  if (isNonRegisteredProfileId(userId)) return null;
 
   try {
     const { data, error } = await supabase
@@ -338,7 +381,7 @@ export async function fetchRemoteProfile(userId: string): Promise<UserProfile | 
     return {
       id: data.id,
       email: data.email || undefined,
-      username: data.username || 'Festival Player',
+      username: data.username || (data.email ? data.email.split('@')[0] : 'Player'),
       avatar: data.avatar || data.avatar_url || '🎲',
       googleAvatar,
       googleName,
@@ -401,8 +444,8 @@ export async function syncProfileToSupabase(profile: UserProfile): Promise<{ suc
     return { success: true };
   }
 
-  // If local temporary guest with pseudo-id, do not attempt cloud insert
-  if (profile.isGuest && (!profile.id || profile.id.startsWith('guest_'))) {
+  // Strictly guard: Only real registered accounts with email/authenticated session can be saved to Supabase profiles
+  if (isNonRegisteredProfile(profile)) {
     lastSyncStatus = { success: true, timestamp: Date.now() };
     return { success: true };
   }
@@ -439,7 +482,7 @@ export async function syncProfileToSupabase(profile: UserProfile): Promise<{ suc
 
     const mergedPayload: Record<string, any> = {
       id: String(profile.id),
-      username: profile.username || 'Festival Player',
+      username: profile.username || (cleanEmail ? cleanEmail.split('@')[0] : 'Player'),
       avatar: profile.avatar || '🎲',
       coins: typeof profile.coins === 'number' ? profile.coins : 0,
       coin_history: historyList,
@@ -498,7 +541,7 @@ export async function syncProfileToSupabase(profile: UserProfile): Promise<{ suc
     if (error && (error.message?.toLowerCase().includes('stats') || error.code === 'PGRST204')) {
       const legacyPayload: Record<string, any> = {
         id: String(profile.id),
-        username: profile.username || 'Festival Player',
+        username: profile.username || (profile.email ? profile.email.split('@')[0] : 'Player'),
         avatar_url: profile.avatar || '🎲',
         coins: profile.coins,
         games_played: profile.gamesPlayed,
@@ -545,7 +588,7 @@ export async function syncProfileToSupabase(profile: UserProfile): Promise<{ suc
 }
 
 /**
- * Fetch leaderboard directly from Supabase profiles table
+ * Fetch leaderboard directly from Supabase profiles table (excluding guests, bots & purged entries)
  */
 export async function fetchRemoteLeaderboard(): Promise<any[] | null> {
   if (!supabase || !isSupabaseConfigured()) return null;
@@ -555,16 +598,27 @@ export async function fetchRemoteLeaderboard(): Promise<any[] | null> {
       .from('profiles')
       .select('*')
       .order('coins', { ascending: false })
-      .limit(20);
+      .limit(50);
 
     if (error || !data || data.length === 0) return null;
 
-    return data.map((row: any, idx: number) => {
+    const validProfiles = data.filter((row: any) => {
+      if (!row || !row.id) return false;
+      if (isNonRegisteredProfileId(row.id)) return false;
+      const username = String(row.username || '').trim().toLowerCase();
+      if ((username === 'festival player' || username === 'festival patron' || username === 'guest') && !row.email) return false;
+      if (username === '[purged]' || username.includes('purged')) return false;
+      const stats = typeof row.stats === 'object' && row.stats !== null ? row.stats : {};
+      if (row.is_bot || row.isBot || stats.is_deleted || stats.is_dummy || stats.isBot) return false;
+      return true;
+    }).slice(0, 20);
+
+    return validProfiles.map((row: any, idx: number) => {
       const stats = typeof row.stats === 'object' && row.stats !== null ? row.stats : {};
       return {
         rank: idx + 1,
         id: row.id,
-        username: row.username || 'Festival Player',
+        username: row.username || (row.email ? row.email.split('@')[0] : 'Player'),
         avatar: row.avatar || row.avatar_url || '🎲',
         coins: typeof row.coins === 'number' ? row.coins : 0,
         totalWinnings: row.total_winnings ?? stats.totalWinnings ?? 0,
@@ -703,7 +757,7 @@ export async function signUpWithEmail(
   username: string
 ): Promise<{ user?: UserProfile; error?: string }> {
   const cleanEmail = email.trim().toLowerCase();
-  const cleanUsername = username.trim() || cleanEmail.split('@')[0] || 'Festival Player';
+  const cleanUsername = username.trim() || cleanEmail.split('@')[0] || 'Player';
 
   if (!cleanEmail || !pass) {
     return { error: 'Please enter both an email and password.' };

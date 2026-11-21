@@ -31,6 +31,7 @@ import { copyTextToClipboard, getTableDirectJoinUrl } from '../../utils/clipboar
 import {
   fetchUserCreatedTablesFromSupabase,
   requestTableCreationApproval,
+  recordTableInSupabase,
   deleteTableFromSupabase,
   GameTableRecord,
 } from '../../services/tableService.js';
@@ -156,7 +157,7 @@ export const GameTableModal: React.FC<GameTableModalProps> = ({
     user.can_create_table
   );
 
-  // Load user's created tables from Supabase game_tables
+  // Load user's created tables from Supabase game_tables_data
   const loadMyTables = useCallback(async () => {
     if (!user.id) return;
     setLoadingMyTables(true);
@@ -282,6 +283,9 @@ export const GameTableModal: React.FC<GameTableModalProps> = ({
       };
       setMyTables((prev) => [pendingRecord, ...prev.filter((t) => t.id !== pendingRecord.id && t.code !== pendingRecord.code)]);
 
+      // Direct write to Supabase game_tables_data
+      recordTableInSupabase(pendingRecord).catch(() => {});
+
       sound.playWinFanfare();
       onShowToast?.('👑 Table request sent! Waiting for admin review ⏳', 'success');
       setCreateSubTab('my_tables');
@@ -338,6 +342,9 @@ export const GameTableModal: React.FC<GameTableModalProps> = ({
         created_at: new Date().toISOString(),
       };
       setMyTables((prev) => [pendingRecord, ...prev.filter((t) => t.id !== pendingRecord.id && t.code !== pendingRecord.code)]);
+
+      // Direct write to Supabase game_tables_data
+      recordTableInSupabase(pendingRecord).catch(() => {});
 
       sound.playWinFanfare();
       onShowToast?.('👑 Table request sent! Waiting for admin review ⏳', 'success');
@@ -880,7 +887,7 @@ export const GameTableModal: React.FC<GameTableModalProps> = ({
                     </button>
                   </form>
                 ) : (
-                /* Sub-Tab 2: My Tables List (Saved directly in game_tables) */
+                /* Sub-Tab 2: My Tables List (Saved directly in game_tables_data) */
                 <div className="space-y-3">
                   <div className="flex items-center justify-between px-1">
                     <span className="text-xs font-bold text-amber-200">
@@ -1070,7 +1077,7 @@ export const GameTableModal: React.FC<GameTableModalProps> = ({
                       <div className="space-y-0.5">
                         <p className="text-xs font-bold text-slate-300">No saved tables found</p>
                         <p className="text-[11px] text-slate-500">
-                          Create tables and they will be saved in Supabase game_tables for you.
+                          Create tables and they will be saved in Supabase game_tables_data for you.
                         </p>
                       </div>
                       <button

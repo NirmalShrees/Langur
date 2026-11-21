@@ -14,7 +14,7 @@
 create table if not exists public.profiles (
   id text primary key,
   email text,
-  username text not null default 'Festival Player',
+  username text not null default 'Player',
   avatar text default '🎲',
   coins bigint default 0,
   coin_history jsonb default '[]'::jsonb,
@@ -48,6 +48,7 @@ alter table public.profiles add column if not exists updated_at timestamptz defa
 
 -- Clean up: Remove created_tables column from profiles table (tables are stored exclusively in game_tables)
 alter table public.profiles drop column if exists created_tables;
+alter table public.profiles alter column username set default 'Player';
 
 -- 3. If id column is uuid, alter it to text so all authentication IDs are supported
 do $$
@@ -123,25 +124,47 @@ create policy "Enable insert for all" on public.profiles for insert with check (
 drop policy if exists "Enable update for all" on public.profiles;
 create policy "Enable update for all" on public.profiles for update using (true);
 
--- 8. Automatic Trigger: Whenever a user signs up/in via Google OAuth or Email in auth.users,
+-- 8. Automatic Trigger: Whenever a real user signs up/in via Google OAuth or Email in auth.users,
 -- automatically sync their account details (name, email, avatar photo) to public.profiles!
+-- Strictly skips anonymous sessions, empty-email users, and bot/placeholder accounts.
 create or replace function public.handle_new_user()
 returns trigger as $$
+declare
+  raw_name text;
+  final_username text;
 begin
+  if coalesce(new.is_anonymous, false)
+     or new.email is null
+     or trim(new.email) = ''
+     or new.id::text ~* '^(bot_|bot-|patron_|smart_|seed-|seed_|ai_|guest_|user_|system)'
+  then
+    return new;
+  end if;
+
+  raw_name := coalesce(
+    nullif(trim(new.raw_user_meta_data->>'full_name'), ''),
+    nullif(trim(new.raw_user_meta_data->>'name'), ''),
+    nullif(trim(new.raw_user_meta_data->>'username'), '')
+  );
+
+  if raw_name is not null and lower(raw_name) in ('festival player', 'festival patron', 'guest', '[purged]') then
+    raw_name := null;
+  end if;
+
+  final_username := coalesce(
+    raw_name,
+    nullif(trim(split_part(new.email, '@', 1)), ''),
+    'Player'
+  );
+
   insert into public.profiles (id, email, username, avatar, coins, notifications, stats, updated_at)
   values (
     new.id::text,
     new.email,
+    final_username,
     coalesce(
-      new.raw_user_meta_data->>'full_name',
-      new.raw_user_meta_data->>'name',
-      new.raw_user_meta_data->>'username',
-      split_part(new.email, '@', 1),
-      'Festival Player'
-    ),
-    coalesce(
-      new.raw_user_meta_data->>'avatar_url',
-      new.raw_user_meta_data->>'picture',
+      nullif(trim(new.raw_user_meta_data->>'avatar_url'), ''),
+      nullif(trim(new.raw_user_meta_data->>'picture'), ''),
       '🎲'
     ),
     0,
@@ -174,21 +197,27 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
 
--- 9. Backfill all existing Google accounts currently in auth.users into public.profiles!
+-- 9. Backfill only real authenticated accounts (with email, non-anonymous) into public.profiles!
 insert into public.profiles (id, email, username, avatar, coins, notifications, stats, updated_at)
 select
   u.id::text,
   u.email,
   coalesce(
-    u.raw_user_meta_data->>'full_name',
-    u.raw_user_meta_data->>'name',
-    u.raw_user_meta_data->>'username',
-    split_part(u.email, '@', 1),
-    'Festival Player'
+    case
+      when lower(trim(coalesce(u.raw_user_meta_data->>'full_name', u.raw_user_meta_data->>'name', u.raw_user_meta_data->>'username', '')))
+           in ('festival player', 'festival patron', 'guest', '[purged]', '') then null
+      else coalesce(
+        nullif(trim(u.raw_user_meta_data->>'full_name'), ''),
+        nullif(trim(u.raw_user_meta_data->>'name'), ''),
+        nullif(trim(u.raw_user_meta_data->>'username'), '')
+      )
+    end,
+    nullif(trim(split_part(u.email, '@', 1)), ''),
+    'Player'
   ) as username,
   coalesce(
-    u.raw_user_meta_data->>'avatar_url',
-    u.raw_user_meta_data->>'picture',
+    nullif(trim(u.raw_user_meta_data->>'avatar_url'), ''),
+    nullif(trim(u.raw_user_meta_data->>'picture'), ''),
     '🎲'
   ) as avatar,
   0 as coins,
@@ -207,166 +236,145 @@ select
   ) as stats,
   now() as updated_at
 from auth.users u
+where coalesce(u.is_anonymous, false) = false
+  and u.email is not null
+  and trim(u.email) <> ''
+  and not (u.id::text ~* '^(bot_|bot-|patron_|smart_|seed-|seed_|ai_|guest_|user_|system)')
 on conflict (id) do update set
   email = excluded.email,
   username = coalesce(excluded.username, public.profiles.username),
   avatar = coalesce(excluded.avatar, public.profiles.avatar),
   updated_at = now();
 
+-- 9b. Remove any previously created bot, guest, or email-less "Festival Player" rows from public.profiles
+delete from public.profiles
+where id ~* '^(bot_|bot-|patron_|smart_|seed-|seed_|ai_|guest_|user_|system)'
+   or coalesce((stats->>'isBot')::boolean, false) = true
+   or coalesce((stats->>'is_dummy')::boolean, false) = true
+   or coalesce((stats->>'is_deleted')::boolean, false) = true
+   or (
+     lower(trim(coalesce(username, ''))) in ('festival player', 'festival patron', 'guest', '[purged]')
+     and (email is null or trim(email) = '')
+   );
+
 -- ============================================================================
--- 10. MULTIPLAYER GAME TABLES (Compact & Optimized Schema)
+-- 10. MULTIPLAYER GAME TABLES DATA (game_tables_data Schema)
 -- ============================================================================
--- Clean, minimal 9-column schema in logical order:
---  1. id               -> Primary table UUID/key
---  2. code             -> 6-character room code (indexed for instant joins)
---  3. name             -> Table display title
---  4. host_id          -> User ID of table host
---  5. host_name        -> Display name of host
---  6. is_private       -> Privacy flag (public vs private)
---  7. betting_duration -> Timer in seconds
---  8. player_count     -> Active player count
---  9. status           -> Table state ('waiting', 'active', 'closed')
--- 10. player_stats     -> Compact player session stats (winRate, coins, profit, bets)
--- 11. history          -> Compact 15-round dice roll history
--- 12. table_stats      -> Aggregate table pool & round counters
--- 13. created_at       -> Creation timestamp
--- 14. updated_at       -> Last active timestamp (indexed for active table sorting)
--- ============================================================================
-create table if not exists public.game_tables (
-  id text primary key,
-  code text not null unique,
-  name text not null,
-  leader_id text,
-  leader_name text,
-  host_id text not null,
-  host_name text not null,
-  approved boolean default false,
-  approval_status text default 'pending',
-  approved_by_admin_id text,
-  approved_by_admin_name text,
-  admin_approval_message text,
-  approved_at timestamptz,
-  is_private boolean default false,
-  betting_duration int default 20,
-  player_count int default 0,
-  status text default 'waiting',
-  player_stats jsonb default '[]'::jsonb,
-  history jsonb default '[]'::jsonb,
-  table_stats jsonb default '{"totalRounds": 0, "totalBets": 0, "totalPayouts": 0}'::jsonb,
-  expires_at timestamptz,
-  validity_hours int default 24,
-  validity_days numeric default 1,
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
-);
+create table if not exists public.game_tables_data (
+  id text not null,
+  code text not null,
+  name text not null default 'Game Table'::text,
+  status text not null default 'waiting'::text,
+  player_count integer not null default 0,
+  expires_at timestamp with time zone null,
+  config jsonb not null default '{"host": {"id": "", "name": "Host"}, "approval": {"admin_id": null, "admin_name": null, "approved_at": null}, "is_private": false, "betting_duration": 18}'::jsonb,
+  player_stats jsonb not null default '[]'::jsonb,
+  history jsonb not null default '[]'::jsonb,
+  table_stats jsonb not null default '{"totalBets": 0, "totalRounds": 0, "totalPayouts": 0}'::jsonb,
+  created_at timestamp with time zone not null default now(),
+  updated_at timestamp with time zone not null default now(),
+  constraint game_tables_beta_pkey primary key (id),
+  constraint game_tables_beta_code_key unique (code)
+) TABLESPACE pg_default;
 
--- Ensure all columns exist for existing databases
-alter table public.game_tables add column if not exists approved boolean default false;
-alter table public.game_tables add column if not exists approval_status text default 'pending';
-alter table public.game_tables add column if not exists leader_id text;
-alter table public.game_tables add column if not exists leader_name text;
-alter table public.game_tables add column if not exists approved_by_admin_id text;
-alter table public.game_tables add column if not exists approved_by_admin_name text;
-alter table public.game_tables add column if not exists admin_approval_message text;
-alter table public.game_tables add column if not exists approved_at timestamptz;
-alter table public.game_tables add column if not exists player_stats jsonb default '[]'::jsonb;
-alter table public.game_tables add column if not exists history jsonb default '[]'::jsonb;
-alter table public.game_tables add column if not exists table_stats jsonb default '{"totalRounds": 0, "totalBets": 0, "totalPayouts": 0}'::jsonb;
-alter table public.game_tables add column if not exists expires_at timestamptz;
-alter table public.game_tables add column if not exists validity_hours int default 24;
-alter table public.game_tables add column if not exists validity_days numeric default 1;
-
--- Backfill leader fields from host fields if empty
-update public.game_tables
-set leader_id = coalesce(leader_id, host_id),
-    leader_name = coalesce(leader_name, host_name)
-where leader_id is null;
-
--- Cleanup legacy standalone table_requests table (all requests are natively stored in public.game_tables)
-drop table if exists public.table_requests cascade;
-
--- Migration: if old bloated 'players' column exists, consolidate into compact 'player_stats'
+-- Migration: If table existed without name column, add it and backfill from config->>'name'
 do $$
 begin
-  if exists (
+  if not exists (
     select 1 from information_schema.columns 
-    where table_schema = 'public' and table_name = 'game_tables' and column_name = 'players'
+    where table_schema = 'public' and table_name = 'game_tables_data' and column_name = 'name'
   ) then
-    execute $backfill$
-      update public.game_tables
-      set player_stats = coalesce(
-        (
-          select jsonb_agg(
-            jsonb_build_object(
-              'id', coalesce(p->>'id', ''),
-              'username', coalesce(p->>'username', 'Player'),
-              'avatar', coalesce(p->>'avatar', '🎲'),
-              'coins', coalesce((p->>'coins')::numeric, 0),
-              'isHost', coalesce((p->>'isHost')::boolean, false),
-              'roundsPlayed', coalesce((p->'sessionStats'->>'roundsPlayed')::int, (p->>'roundsPlayed')::int, 0),
-              'roundsWon', coalesce((p->'sessionStats'->>'roundsWon')::int, (p->>'roundsWon')::int, 0),
-              'winRate', coalesce((p->'sessionStats'->>'winRate')::int, (p->>'winRate')::int, 0),
-              'totalBet', coalesce((p->'sessionStats'->>'totalBet')::numeric, (p->>'totalBet')::numeric, 0),
-              'totalWon', coalesce((p->'sessionStats'->>'totalWon')::numeric, (p->>'totalWon')::numeric, 0),
-              'netProfit', coalesce((p->'sessionStats'->>'netProfit')::numeric, (p->>'netProfit')::numeric, 0),
-              'biggestWin', coalesce((p->'sessionStats'->>'biggestWin')::numeric, (p->>'biggestWin')::numeric, 0),
-              'lastActive', coalesce((p->>'lastActive')::bigint, extract(epoch from now())::bigint * 1000)
-            )
-          )
-          from jsonb_array_elements(players) as p
-        ),
-        '[]'::jsonb
-      )
-      where (player_stats is null or player_stats = '[]'::jsonb)
-        and players is not null 
-        and jsonb_typeof(players) = 'array'
-        and jsonb_array_length(players) > 0;
-    $backfill$;
+    alter table public.game_tables_data add column name text not null default 'Game Table';
   end if;
 end $$;
 
--- Fast lookup indexes
-create index if not exists idx_game_tables_code on public.game_tables (code);
-create index if not exists idx_game_tables_status on public.game_tables (status);
-create index if not exists idx_game_tables_updated_at on public.game_tables (updated_at desc);
+update public.game_tables_data
+set name = coalesce(nullif(config->>'name', ''), name)
+where config ? 'name';
 
--- Enable Row Level Security
-alter table public.game_tables enable row level security;
+update public.game_tables_data
+set config = config - 'name'
+where config ? 'name';
 
--- Policies for public reading, table creation and updates
-drop policy if exists "Public game_tables read" on public.game_tables;
-create policy "Public game_tables read" on public.game_tables
+-- Indices for instant query lookup
+create index if not exists game_tables_beta_status_idx on public.game_tables_data using btree (status) TABLESPACE pg_default;
+create index if not exists game_tables_beta_player_count_idx on public.game_tables_data using btree (player_count) TABLESPACE pg_default;
+create index if not exists game_tables_beta_updated_at_idx on public.game_tables_data using btree (updated_at desc) TABLESPACE pg_default;
+create index if not exists game_tables_beta_host_id_idx on public.game_tables_data using btree ((((config -> 'host'::text) ->> 'id'::text))) TABLESPACE pg_default;
+create index if not exists game_tables_beta_name_idx on public.game_tables_data using btree (name) TABLESPACE pg_default;
+
+-- Auto-migrate existing rows from legacy public.game_tables if it was present
+do $$
+begin
+  if exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'game_tables') then
+    insert into public.game_tables_data (
+      id, code, name, status, player_count, expires_at, config, player_stats, history, table_stats, created_at, updated_at
+    )
+    select
+      g.id,
+      g.code,
+      coalesce(g.name, 'Game Table'),
+      coalesce(g.status, 'waiting'),
+      coalesce(g.player_count, 0),
+      g.expires_at,
+      jsonb_build_object(
+        'is_private', coalesce(g.is_private, false),
+        'betting_duration', coalesce(g.betting_duration, 18),
+        'validity_hours', coalesce(g.validity_hours, 24),
+        'host', jsonb_build_object(
+          'id', coalesce(g.host_id, g.leader_id, ''),
+          'name', coalesce(g.host_name, g.leader_name, 'Host')
+        ),
+        'approval', jsonb_build_object(
+          'admin_id', coalesce(g.approval_meta->>'admin_id', g.approved_by_admin_id, null),
+          'admin_name', coalesce(g.approval_meta->>'admin_name', g.approved_by_admin_name, null),
+          'approved_at', coalesce(g.approval_meta->>'approved_at', g.approved_at::text, null)
+        )
+      ),
+      coalesce(g.player_stats, '[]'::jsonb),
+      coalesce(g.history, '[]'::jsonb),
+      coalesce(g.table_stats, '{"totalBets": 0, "totalRounds": 0, "totalPayouts": 0}'::jsonb),
+      coalesce(g.created_at, now()),
+      coalesce(g.updated_at, now())
+    from public.game_tables g
+    on conflict (id) do update set
+      name = excluded.name,
+      status = excluded.status,
+      player_count = excluded.player_count,
+      expires_at = excluded.expires_at,
+      config = excluded.config,
+      player_stats = excluded.player_stats,
+      history = excluded.history,
+      table_stats = excluded.table_stats,
+      updated_at = excluded.updated_at;
+  end if;
+end $$;
+
+-- Enable Row Level Security (RLS)
+alter table public.game_tables_data enable row level security;
+
+-- Policies for public reading, inserting, updating, and deleting
+drop policy if exists "Public game_tables_data read" on public.game_tables_data;
+create policy "Public game_tables_data read" on public.game_tables_data
   for select using (true);
 
-drop policy if exists "Enable game_tables insert for all" on public.game_tables;
-create policy "Enable game_tables insert for all" on public.game_tables
+drop policy if exists "Enable game_tables_data insert for all" on public.game_tables_data;
+create policy "Enable game_tables_data insert for all" on public.game_tables_data
   for insert with check (true);
 
-drop policy if exists "Enable game_tables update for all" on public.game_tables;
-create policy "Enable game_tables update for all" on public.game_tables
+drop policy if exists "Enable game_tables_data update for all" on public.game_tables_data;
+create policy "Enable game_tables_data update for all" on public.game_tables_data
   for update using (true);
 
--- Only admins and only admins can delete rows from game_tables
-drop policy if exists "Enable game_tables delete for all" on public.game_tables;
-drop policy if exists "Admins only can delete game_tables" on public.game_tables;
-drop policy if exists "Admins can delete game_tables" on public.game_tables;
-create policy "Admins only can delete game_tables" on public.game_tables
-  for delete using (
-    exists (
-      select 1 from public.profiles
-      where profiles.id = auth.uid()::text
-      and profiles.is_admin = true
-    )
-    or
-    -- Allow service_role key or superuser bypass
-    current_setting('request.jwt.claims', true)::jsonb->>'role' = 'service_role'
-  );
+drop policy if exists "Enable game_tables_data delete for all" on public.game_tables_data;
+create policy "Enable game_tables_data delete for all" on public.game_tables_data
+  for delete using (true);
 
--- Enable Supabase Realtime for game_tables if publication exists
+-- Enable Supabase Realtime for game_tables_data
 do $$
 begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
-    alter publication supabase_realtime add table public.game_tables;
+    alter publication supabase_realtime add table public.game_tables_data;
   end if;
 exception
   when duplicate_object then null;

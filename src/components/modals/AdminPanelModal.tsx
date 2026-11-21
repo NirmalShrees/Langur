@@ -257,7 +257,11 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   const [selectedGodTable, setSelectedGodTable] = useState<TableAdminData | null>(null);
   const [copiedGodCode, setCopiedGodCode] = useState<boolean>(false);
 
-  // Fetch Table Requests
+  // Refresh States
+  const [isRefreshingTables, setIsRefreshingTables] = useState(false);
+  const [isRefreshingRequests, setIsRefreshingRequests] = useState(false);
+
+  // Fetch Table Requests from Server & Supabase
   const fetchTableRequestsData = useCallback(async () => {
     try {
       const res = await fetchPendingTableRequests();
@@ -268,6 +272,27 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
       console.warn('Failed fetching table requests:', err);
     }
   }, []);
+
+  // Dedicated Table Requests Refresh Handler
+  const handleRefreshRequests = useCallback(async () => {
+    if (isRefreshingRequests) return;
+    setIsRefreshingRequests(true);
+    sound.playChipSound();
+    try {
+      const res = await fetchPendingTableRequests();
+      if (res.success && Array.isArray(res.requests)) {
+        setTableRequests(res.requests);
+        onShowToast(`Refreshed table requests: ${res.requests.length} pending request(s) found.`, 'info');
+      } else {
+        onShowToast('Refreshed table requests from Supabase.', 'info');
+      }
+    } catch (err) {
+      console.warn('Failed refreshing table requests:', err);
+      onShowToast('Failed refreshing table requests', 'error');
+    } finally {
+      setTimeout(() => setIsRefreshingRequests(false), 450);
+    }
+  }, [isRefreshingRequests, onShowToast]);
 
   // Fetch Players
   const fetchPlayers = useCallback(async () => {
@@ -297,6 +322,41 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
       console.warn('Failed fetching admin tables:', err);
     }
   }, []);
+
+  // Dedicated Full Tables & Requests Refresh Handler
+  const handleRefreshAllTables = useCallback(async () => {
+    if (isRefreshingTables) return;
+    setIsRefreshingTables(true);
+    sound.playChipSound();
+    try {
+      const [tablesRes, reqsRes] = await Promise.all([
+        fetch('/api/admin/tables', { cache: 'no-store' }).then((r) => r.json()).catch(() => null),
+        fetchPendingTableRequests().catch(() => null),
+      ]);
+
+      let activeCount = 0;
+      let requestCount = 0;
+
+      if (tablesRes?.success && Array.isArray(tablesRes.tables)) {
+        setTables(tablesRes.tables);
+        activeCount = tablesRes.tables.length;
+      }
+      if (reqsRes?.success && Array.isArray(reqsRes.requests)) {
+        setTableRequests(reqsRes.requests);
+        requestCount = reqsRes.requests.length;
+      }
+
+      onShowToast(
+        `Database sync complete: ${activeCount} active table(s), ${requestCount} pending request(s).`,
+        'success'
+      );
+    } catch (err) {
+      console.warn('Failed refreshing tables and requests:', err);
+      onShowToast('Failed refreshing tables from database', 'error');
+    } finally {
+      setTimeout(() => setIsRefreshingTables(false), 500);
+    }
+  }, [isRefreshingTables, onShowToast]);
 
   // Load data on open & subscribe to live telemetry stream
   useEffect(() => {
@@ -823,7 +883,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
         );
       } else {
         onShowToast(
-          `✓ Redundant tables purged! Supabase game_tables is clean and in sync.`,
+          `✓ Redundant tables purged! Supabase game_tables_data is clean and in sync.`,
           'success'
         );
       }
@@ -838,7 +898,29 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
 
   // Complete Players list guaranteeing current user (myself) is present and active online
   const completePlayers = useMemo<PlayerAdminData[]>(() => {
-    const list = [...players];
+    // Strictly filter out dummy/guest/festival player entries to prevent roster clutter
+    const list = players.filter((p) => {
+      if (!p || !p.id) return false;
+      const id = String(p.id).toLowerCase();
+      if (
+        id.startsWith('bot_') ||
+        id.startsWith('patron_') ||
+        id.startsWith('smart_') ||
+        id.startsWith('seed-') ||
+        id.startsWith('seed_') ||
+        id.startsWith('ai_') ||
+        id.startsWith('bot-') ||
+        id.startsWith('user_') ||
+        id.startsWith('guest_')
+      ) {
+        return false;
+      }
+      const username = String(p.username || '').trim().toLowerCase();
+      if (username === 'festival player' && !p.email) return false;
+      if (username === '[purged]' || username.includes('purged')) return false;
+      return true;
+    });
+
     const meIndex = list.findIndex(
       (p) =>
         (currentUser.id && p.id === currentUser.id) ||
@@ -1289,11 +1371,15 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                   </div>
                   <button
                     type="button"
-                    onClick={fetchTableRequestsData}
-                    className="p-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-amber-300 border border-slate-700 text-xs flex items-center gap-1 cursor-pointer active:scale-95"
+                    disabled={isRefreshingRequests}
+                    onClick={handleRefreshRequests}
+                    className="px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-amber-300 border border-slate-700 text-xs flex items-center gap-1.5 cursor-pointer active:scale-95 disabled:opacity-50 transition-all shadow-sm"
+                    title="Query Supabase game_tables_data for fresh pending requests"
                   >
-                    <RefreshCw className="w-3 h-3" />
-                    <span className="text-[10px]">Refresh</span>
+                    <RefreshCw className={`w-3 h-3 ${isRefreshingRequests ? 'animate-spin text-amber-400' : ''}`} />
+                    <span className="text-[10px] sm:text-xs font-mono font-bold">
+                      {isRefreshingRequests ? 'Refreshing...' : 'Refresh'}
+                    </span>
                   </button>
                 </div>
 
@@ -1381,14 +1467,14 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                       <span>Delete Redundant Tables</span>
                     </button>
                     <button
-                      onClick={() => {
-                        fetchTables();
-                        fetchTableRequestsData();
-                      }}
-                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-300 border border-slate-700 text-xs font-semibold transition-all cursor-pointer"
+                      type="button"
+                      disabled={isRefreshingTables}
+                      onClick={handleRefreshAllTables}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-300 border border-slate-700 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 shadow-sm active:scale-95"
+                      title="Fetch latest game_tables_data and active rooms from Supabase"
                     >
-                      <RefreshCw className="w-3 h-3" />
-                      <span>Refresh</span>
+                      <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingTables ? 'animate-spin text-amber-400' : ''}`} />
+                      <span>{isRefreshingTables ? 'Refreshing...' : 'Refresh'}</span>
                     </button>
                   </div>
                 </div>
